@@ -23,8 +23,8 @@ export GA_KEY="your_api_key_here"
 # 5. Run your first attack using a provided config
 ga-red jobs run configs/tap_llm_user.yaml
 
-# 6. Check job status
-ga-red jobs show
+# 6. attach to the job
+ga-red jobs attach
 
 # 7. View results
 ga-red jobs results

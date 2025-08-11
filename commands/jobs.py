@@ -325,24 +325,24 @@ def export_results(client: APIClient, args):
         print_json({'job_id': job_id, 'results': results})
 
 def attach_to_job(client: APIClient, args):
-    """Attach to a running job and show live updates"""
+    """Attach to a running job and show live updates with real-time logs"""
+    from rich.live import Live
+    from rich.text import Text
+    from rich.console import Group
+    from rich.align import Align
+    from rich.rule import Rule
+    
     job_id = select_job(client, getattr(args, 'job_id', None))
     if not job_id:
         return
     
-    interval = getattr(args, 'interval', 5)
+    # Use 1 second interval for log updates
+    interval = 1  # Fixed to 1 second for real-time log viewing
     
-    print_info(f"Attaching to job {job_id} (checking every {interval}s, Ctrl+C to stop)...")
+    print_info(f"Attaching to job {job_id} (updating every {interval}s, Ctrl+C to stop)...")
     
     try:
-        with Progress(
-            SpinnerColumn(style="red"),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            console=console
-        ) as progress:
+        with Live(console=console, refresh_per_second=1) as live:
             # Get initial job info
             initial_job = client.get(f"/jobs/{job_id}")
             if not initial_job:
@@ -352,13 +352,24 @@ def attach_to_job(client: APIClient, args):
             total = initial_job.get('total_objectives', 0)
             completed = initial_job.get('completed_objectives', 0)
             
-            task = progress.add_task(
-                f"Monitoring job {job_id}...", 
+            # Create progress display
+            progress_display = Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(complete_style="bright_white"),
+                TaskProgressColumn(),
+                TextColumn("[dim]{task.elapsed:.0f}s[/dim]"),
+                console=console
+            )
+            
+            task = progress_display.add_task(
+                f"Processing objectives...", 
                 total=total if total > 0 else None,
                 completed=completed
             )
             
             while True:
+                # Fetch job status
                 data = client.get(f"/jobs/{job_id}")
                 if not data:
                     break
@@ -366,19 +377,73 @@ def attach_to_job(client: APIClient, args):
                 status = data.get('status', 'unknown')
                 completed = data.get('completed_objectives', 0)
                 total = data.get('total_objectives', 0)
+                asr = data.get('asr')  # Can be None for running jobs
                 
-                progress.update(
+                # Update progress
+                asr_text = f"{asr:.1%}" if asr is not None else "N/A"
+                status_text = status.capitalize() if status else "Unknown"
+                progress_display.update(
                     task, 
-                    description=f"Job {job_id}: {format_status_plain(status)} ({completed}/{total})",
+                    description=f"Status: {status_text} | Objectives: {completed}/{total} | ASR: {asr_text}",
                     completed=completed
                 )
                 
+                # Fetch and display new logs - let's try a simple table without markup
+                from rich.table import Table
+                logs_table = Table(show_header=True, header_style="bold", box=None, expand=False)
+                logs_table.add_column("Time", width=8, no_wrap=True)
+                logs_table.add_column("Level", width=5, no_wrap=True)
+                logs_table.add_column("Message", width=80, no_wrap=False)
+                
+                logs_response = client.get(f"/jobs/{job_id}/logs")
+                if logs_response and 'logs' in logs_response and len(logs_response['logs']) > 0:
+                    # Get last 5 logs and reverse to show newest first
+                    recent_logs = logs_response['logs'][-5:]
+                    recent_logs.reverse()
+                    
+                    for log in recent_logs:
+                        # Parse timestamp
+                        try:
+                            timestamp = datetime.fromisoformat(log['created_at'].replace('Z', '+00:00'))
+                            time_str = timestamp.strftime("%H:%M:%S")
+                        except:
+                            time_str = "??:??:??"
+                        
+                        # Format level - no markup
+                        level = log.get('level', 'INFO')[:3]  # Just first 3 chars
+                        
+                        # Get message and truncate if needed
+                        message = log.get('log', '')
+                        if len(message) > 80:
+                            message = message[:77] + "..."
+                        
+                        # Add row without any markup
+                        logs_table.add_row(time_str, level, message)
+                else:
+                    logs_table.add_row("", "", "Waiting for logs...")
+                
+                # Create simple display
+                display_content = Group(
+                    Align.center(Text.from_markup(f"[bold]Job #{job_id}[/bold]")),
+                    Rule(style="dim"),
+                    progress_display,
+                    Rule(style="dim"),
+                    Text.from_markup("[red]Latest Logs:[/red]"),
+                    logs_table,
+                    Rule(style="dim"),
+                    Align.center(Text.from_markup("[dim]Press Ctrl+C to detach[/dim]"))
+                )
+                
+                live.update(Panel(display_content, border_style="bright_black", padding=(1, 2)))
+                
+                # Check if job is complete
                 if status in ['completed', 'failed', 'error']:
-                    progress.stop()
-                    console.print(f"\nJob {job_id} {status}")
+                    live.stop()
+                    console.print(f"\n[bold]Job {job_id} {status}[/bold]")
                     
                     if status == 'completed':
-                        print_success(f"Job completed successfully! ASR: {data.get('asr', 0):.1%}")
+                        asr_text = f"{asr:.1%}" if asr is not None else "N/A"
+                        print_success(f"Job completed successfully! ASR: {asr_text}")
                     else:
                         print_error(f"Job {status}")
                     break
@@ -386,7 +451,7 @@ def attach_to_job(client: APIClient, args):
                 time.sleep(interval)
                 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Detached from job[/yellow]")
+        console.print("\n[dim]Detached from job[/dim]")
 
 def delete_job(client: APIClient, args):
     """Delete job(s)"""
