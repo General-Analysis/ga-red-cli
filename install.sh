@@ -43,7 +43,7 @@ if [ $? -eq 0 ]; then
     echo "Then you can use the 'ga-red' command:"
     echo "  ga-red --help"
     echo "  ga-red jobs list"
-    echo "  ga-red jobs run configs/tap_basic.yaml"
+    echo "  ga-red jobs run configs/tap_llm_user.yaml"
     echo ""
     echo "To deactivate the virtual environment when done:"
     echo "  deactivate"

@@ -16,7 +16,7 @@ setup(
     packages=find_packages(),
     py_modules=["cli_main", "utils", "run_job"],
     install_requires=requirements,
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     entry_points={
         "console_scripts": [
             "ga-red=cli_main:main",
