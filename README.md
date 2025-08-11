@@ -323,11 +323,6 @@ If you cannot connect to the server:
 2. Verify the API server is accessible
 3. Ensure your firewall allows HTTPS connections
 
-## Support
-
-For additional help:
-- Visit the [documentation](https://docs.generalanalysis.com)
-- Contact support through the [platform](https://art.generalanalysis.com)
 
 ## License
 
