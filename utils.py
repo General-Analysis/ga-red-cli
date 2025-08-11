@@ -76,7 +76,7 @@ class APIClient:
         url = f"{self.base_url}{endpoint}"
         try:
             response = requests.post(url, json=data, headers=self.headers)
-            if response.status_code == 200:
+            if response.status_code in [200, 201]:  # Accept both 200 and 201 for successful creation
                 return response.json()
             else:
                 console.print(f"[red]Error: {response.status_code}[/red]")

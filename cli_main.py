@@ -26,18 +26,18 @@ console = Console()
 def print_main_help():
     """Print main help using Rich formatting"""
     console.print(Panel.fit(
-        "[bold cyan]REDit CLI[/bold cyan] - Manage and execute adversarial attacks",
+        "[bold red]REDit CLI[/bold red] - Manage and execute adversarial attacks",
         title="REDit Command Line Interface",
-        border_style="cyan"
+        border_style="red"
     ))
     
     console.print("\n[bold]Usage:[/bold]")
-    console.print("  ga-red [cyan]<command>[/cyan] [dim][options][/dim]")
+    console.print("  ga-red [red]<command>[/red] [dim][options][/dim]")
     console.print("  ga-red --help\n")
     
     # Create commands table
-    table = Table(title="Available Commands", show_header=True, header_style="bold cyan")
-    table.add_column("Command", style="cyan", no_wrap=True)
+    table = Table(title="Available Commands", show_header=True, header_style="bold red")
+    table.add_column("Command", style="red", no_wrap=True)
     table.add_column("Description", style="white")
     
     table.add_row("jobs", "Manage jobs (list, show, run, attach, export results, etc.)")
@@ -47,15 +47,15 @@ def print_main_help():
     console.print(table)
     
     console.print("\n[bold]Common Workflows:[/bold]")
-    console.print("  1. Run an attack:        ga-red jobs run config.yaml")
-    console.print("  2. Check job status:     ga-red jobs show")
-    console.print("  3. Get results:          ga-red jobs results")
-    console.print("  4. Export results:       ga-red jobs export --csv output.csv")
-    console.print("  5. List datasets:        ga-red datasets list")
-    console.print("  6. View algorithms:      ga-red algorithms list")
+    console.print("  [red]1.[/red] Run an attack:        ga-red jobs run config.yaml")
+    console.print("  [red]2.[/red] Check job status:     ga-red jobs show")
+    console.print("  [red]3.[/red] Get results:          ga-red jobs results")
+    console.print("  [red]4.[/red] Export results:       ga-red jobs export --csv output.csv")
+    console.print("  [red]5.[/red] List datasets:        ga-red datasets list")
+    console.print("  [red]6.[/red] View algorithms:      ga-red algorithms list")
     
     console.print("\n[dim]For help on a specific command:[/dim]")
-    console.print("  ga-red [cyan]<command>[/cyan] --help")
+    console.print("  ga-red [red]<command>[/red] --help")
     console.print()
 
 def main():

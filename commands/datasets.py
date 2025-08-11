@@ -5,6 +5,7 @@ Datasets command - Manage datasets with consistent verbs
 import sys
 import argparse
 import json
+import csv
 from pathlib import Path
 from rich.panel import Panel
 from rich.table import Table
@@ -17,30 +18,30 @@ from utils import (
 def print_datasets_help():
     """Print datasets command help using Rich"""
     console.print(Panel.fit(
-        "[bold cyan]Datasets Command[/bold cyan] - Manage datasets and their entries",
+        "[bold red]Datasets Command[/bold red] - Manage datasets and their entries",
         title="Dataset Management",
-        border_style="cyan"
+        border_style="red"
     ))
     
     console.print("\n[bold]Usage:[/bold]")
-    console.print("  ga-red datasets [cyan]<action>[/cyan] [dim][options][/dim]\n")
+    console.print("  ga-red datasets [red]<action>[/red] [dim][options][/dim]\n")
     
     # Create actions table
-    table = Table(title="Available Actions", show_header=True, header_style="bold cyan")
-    table.add_column("Action", style="cyan", no_wrap=True)
+    table = Table(title="Available Actions", show_header=True, header_style="bold red")
+    table.add_column("Action", style="red", no_wrap=True)
     table.add_column("Description", style="white")
     
     table.add_row("list", "List all datasets")
     table.add_row("show [name]", "Show dataset details (interactive if no name)")
     table.add_row("entries [name]", "View/paginate entries (interactive if no name)")
     table.add_row("export [name]", "Export dataset to JSON/CSV (interactive if no name)")
-    table.add_row("create", "Create new dataset")
+    table.add_row("create [name] [csv_file]", "Create dataset from CSV (goal column required)")
     table.add_row("delete [name]", "Delete dataset (interactive if no name)")
     
     console.print(table)
     
     console.print("\n[dim]For help on a specific action:[/dim]")
-    console.print("  ga-red datasets [cyan]<action>[/cyan] --help")
+    console.print("  ga-red datasets [red]<action>[/red] --help")
     console.print()
 
 def add_parser(subparsers):
@@ -87,10 +88,10 @@ def add_parser(subparsers):
     export_parser.add_argument('--format', choices=['json', 'csv'], default='json', help='Export format')
     
     # Create command
-    create_parser = subparsers.add_parser('create', help='Create new dataset')
+    create_parser = subparsers.add_parser('create', help='Create dataset from CSV file')
     create_parser.add_argument('name', help='Dataset name')
+    create_parser.add_argument('csv_file', help='Path to CSV file with goal column (prompt column optional)')
     create_parser.add_argument('--description', '-d', help='Dataset description')
-    create_parser.add_argument('--entries-file', help='JSON file with initial entries')
     
     # Delete command
     delete_parser = subparsers.add_parser('delete', help='Delete dataset')
@@ -124,7 +125,7 @@ def execute(args):
 
 def list_datasets(client: APIClient, args):
     """List all datasets"""
-    with console.status("[cyan]Fetching datasets...[/cyan]"):
+    with console.status("[red]Fetching datasets...[/red]"):
         response = client.get("/datasets")
     
     if not response:
@@ -146,6 +147,8 @@ def list_datasets(client: APIClient, args):
     
     for dataset in datasets:
         desc = dataset.get('description', 'N/A')
+        if desc is None:
+            desc = 'N/A'
         desc_display = desc[:40] + "..." if len(desc) > 40 else desc
         
         rows.append([
@@ -164,7 +167,7 @@ def show_dataset(client: APIClient, args):
     if not dataset_name:
         return
     
-    with console.status(f"[cyan]Fetching dataset '{dataset_name}'...[/cyan]"):
+    with console.status(f"[red]Fetching dataset '{dataset_name}'...[/red]"):
         data = client.get(f"/datasets/{dataset_name}")
     
     if not data:
@@ -175,7 +178,7 @@ def show_dataset(client: APIClient, args):
         return
     
     # Display dataset details
-    print_panel(f"Dataset: {dataset_name}", style="cyan")
+    print_panel(f"Dataset: {dataset_name}", style="red")
     
     details = []
     details.append(f"Name: {data.get('name', 'N/A')}")
@@ -213,7 +216,7 @@ def show_entries(client: APIClient, args):
     if params:
         endpoint += "?" + "&".join(params)
     
-    with console.status(f"[cyan]Fetching entries for '{dataset_name}'...[/cyan]"):
+    with console.status(f"[red]Fetching entries for '{dataset_name}'...[/red]"):
         data = client.get(endpoint)
     
     if not data:
@@ -238,7 +241,7 @@ def show_entries(client: APIClient, args):
     # Display entries
     print_panel(
         f"Dataset: {dataset_name} - Showing {len(entries)} entries (offset={offset})",
-        style="cyan"
+        style="red"
     )
     
     for idx, entry in enumerate(entries, 1 + offset):
@@ -255,7 +258,7 @@ def export_dataset(client: APIClient, args):
     if not dataset_name:
         return
     
-    with console.status(f"[cyan]Fetching dataset '{dataset_name}'...[/cyan]"):
+    with console.status(f"[red]Fetching dataset '{dataset_name}'...[/red]"):
         data = client.get(f"/datasets/{dataset_name}")
     
     if not data:
@@ -290,44 +293,85 @@ def export_dataset(client: APIClient, args):
         print_success(f"Dataset exported to: {output_file.absolute()}")
 
 def create_dataset(client: APIClient, args):
-    """Create a new dataset"""
-    dataset_data = {
-        'name': args.name,
-        'description': getattr(args, 'description', '')
-    }
+    """Create a new dataset from CSV file"""
+    csv_file = Path(args.csv_file)
     
-    # Load entries from file if provided
-    if getattr(args, 'entries_file', None):
-        entries_file = Path(args.entries_file)
-        if not entries_file.exists():
-            print_error(f"Entries file not found: {entries_file}")
-            return
-        
-        try:
-            with open(entries_file, 'r') as f:
-                entries = json.load(f)
+    # Check if file exists
+    if not csv_file.exists():
+        print_error(f"CSV file not found: {csv_file}")
+        return
+    
+    # Check file extension
+    if csv_file.suffix.lower() != '.csv':
+        print_warning(f"File '{csv_file}' does not have .csv extension. Proceeding anyway...")
+    
+    entries = []
+    
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
             
-            # Validate entries format
-            if not isinstance(entries, list):
-                print_error("Entries file must contain a JSON array")
+            # Check if required columns exist
+            if reader.fieldnames is None:
+                print_error("CSV file appears to be empty")
                 return
             
-            for i, entry in enumerate(entries):
-                if not isinstance(entry, dict) or 'prompt' not in entry or 'goal' not in entry:
-                    print_error(f"Entry {i+1} must have 'prompt' and 'goal' fields")
-                    return
+            # Convert fieldnames to lowercase for case-insensitive comparison
+            fieldnames_lower = [field.lower() for field in reader.fieldnames]
             
-            dataset_data['entries'] = entries
-            console.print(f"[green]Loaded {len(entries)} entries from {args.entries_file}[/green]")
+            # Only goal column is required now
+            if 'goal' not in fieldnames_lower:
+                print_error("CSV file must have a 'goal' column")
+                print_info(f"Found columns: {', '.join(reader.fieldnames)}")
+                return
             
-        except json.JSONDecodeError as e:
-            print_error(f"Invalid JSON in entries file: {e}")
+            # Find the actual column names (preserve original case)
+            prompt_col = None
+            goal_col = None
+            for field in reader.fieldnames:
+                if field.lower() == 'prompt':
+                    prompt_col = field
+                elif field.lower() == 'goal':
+                    goal_col = field
+            
+            # Check if prompt column exists (no warning needed, this is expected behavior)
+            has_prompt_column = prompt_col is not None
+            
+            # Read entries
+            for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
+                # Get prompt from column if it exists, otherwise use empty string
+                prompt = row.get(prompt_col, '').strip() if prompt_col else ''
+                goal = row.get(goal_col, '').strip()
+                
+                # Skip rows without goals
+                if not goal:
+                    print_warning(f"Row {row_num}: Missing goal, skipping...")
+                    continue
+                
+                entries.append({
+                    'prompt': prompt,  # Will be empty if no prompt column
+                    'goal': goal
+                })
+        
+        if not entries:
+            print_error("No valid entries found in CSV file")
             return
-        except Exception as e:
-            print_error(f"Failed to load entries file: {e}")
-            return
+        
+        console.print(f"[green]Loaded {len(entries)} valid entries from {csv_file}[/green]")
+        
+    except Exception as e:
+        print_error(f"Failed to read CSV file: {e}")
+        return
     
-    with console.status(f"[cyan]Creating dataset '{args.name}'...[/cyan]"):
+    # Prepare dataset data
+    dataset_data = {
+        'name': args.name,
+        'description': getattr(args, 'description', f'Dataset created from {csv_file.name}'),
+        'entries': entries
+    }
+    
+    # Create dataset
+    with console.status(f"[red]Creating dataset '{args.name}' with {len(entries)} entries...[/red]"):
         response = client.post("/datasets", dataset_data)
     
     if response:
@@ -337,7 +381,8 @@ def create_dataset(client: APIClient, args):
         info_lines = []
         info_lines.append(f"[bold]Name:[/bold] {response.get('name', args.name)}")
         info_lines.append(f"[bold]Description:[/bold] {response.get('description', 'N/A')}")
-        info_lines.append(f"[bold]Entries:[/bold] {len(response.get('entries', []))}")
+        info_lines.append(f"[bold]Entries:[/bold] {response.get('size', len(entries))}")
+        info_lines.append(f"[bold]Source:[/bold] {csv_file.name}")
         
         print_panel("\n".join(info_lines), title="Created Dataset", style="green")
 
