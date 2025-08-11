@@ -1,5 +1,7 @@
 # REDit CLI
 
+![REDit CLI](image.png)
+
 A powerful command-line interface for managing and executing adversarial attacks on language models using the General Analysis REDit platform.
 
 ## Quick Start
