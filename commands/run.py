@@ -21,13 +21,13 @@ import sys
 def print_run_help():
     """Print run command help using Rich"""
     console.print(Panel.fit(
-        "[bold cyan]Run Command[/bold cyan] - Execute attack configurations",
+        "[bold red]Run Command[/bold red] - Execute attack configurations",
         title="Run Attack",
-        border_style="cyan"
+        border_style="red"
     ))
     
     console.print("\n[bold]Usage:[/bold]")
-    console.print("  ga-red run [cyan]<config_file>[/cyan] [dim][options][/dim]\n")
+    console.print("  ga-red run [red]<config_file>[/red] [dim][options][/dim]\n")
     
     console.print("[bold]Options:[/bold]")
     console.print("  --monitor, -m     Monitor job status until completion")
@@ -86,7 +86,7 @@ def execute(args):
     client = APIClient()
     
     # Load configuration
-    with console.status("[cyan]Loading configuration...[/cyan]"):
+    with console.status("[red]Loading configuration...[/red]"):
         config = load_yaml_config(args.config_file)
     
     if not config:
@@ -103,7 +103,7 @@ def execute(args):
         if 'models' in config['config'] and 'target' in config['config']['models']:
             config_info.append(f"[bold]Target model:[/bold] {config['config']['models']['target'].get('name', 'N/A')}")
     
-    print_panel("\n".join(config_info), title="Configuration Loaded", style="cyan")
+    print_panel("\n".join(config_info), title="Configuration Loaded", style="red")
     
     # Prepare payload
     payload = {
@@ -112,7 +112,7 @@ def execute(args):
     }
     
     # Submit job
-    console.print("\n[cyan]Submitting job to server...[/cyan]")
+    console.print("\n[red]Submitting job to server...[/red]")
     result = client.post("/run", payload)
     
     if not result:
@@ -143,13 +143,13 @@ def execute(args):
 
 def monitor_job(client: APIClient, job_id: int, interval: int):
     """Monitor job status until completion with rich display"""
-    console.print(f"\n[bold cyan]Monitoring job {job_id}[/bold cyan]")
+    console.print(f"\n[bold red]Monitoring job {job_id}[/bold red]")
     console.print(f"[dim]Checking every {interval} seconds[/dim]")
     console.print("[dim]Press Ctrl+C to stop monitoring[/dim]\n")
     
     # Create progress display with a proper progress bar
     progress = Progress(
-        SpinnerColumn(),
+        SpinnerColumn(style="red"),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
@@ -170,12 +170,12 @@ def monitor_job(client: APIClient, job_id: int, interval: int):
             # Create task with total if known
             if total_objectives > 0:
                 task = progress.add_task(
-                    f"[cyan]Processing objectives...",
+                    f"[red]Processing objectives...",
                     total=total_objectives
                 )
             else:
                 task = progress.add_task(
-                    "[cyan]Processing...",
+                    "[red]Processing...",
                     total=None
                 )
             
@@ -197,12 +197,12 @@ def monitor_job(client: APIClient, job_id: int, interval: int):
                     progress.update(
                         task, 
                         completed=completed_objectives,
-                        description=f"[cyan]Status: {format_status_plain(status)} [{completed_objectives}/{total_objectives}]"
+                        description=f"[red]Status: {format_status_plain(status)} [{completed_objectives}/{total_objectives}]"
                     )
                 else:
                     progress.update(
                         task,
-                        description=f"[cyan]Status: {format_status_plain(status)}"
+                        description=f"[red]Status: {format_status_plain(status)}"
                     )
                 
                 # Check if complete
@@ -243,7 +243,7 @@ def wait_for_job(client: APIClient, job_id: int, interval: int):
     
     # Create progress bar
     progress = Progress(
-        SpinnerColumn(),
+        SpinnerColumn(style="red"),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
@@ -253,12 +253,12 @@ def wait_for_job(client: APIClient, job_id: int, interval: int):
     with progress:
         if total_objectives > 0:
             task = progress.add_task(
-                f"[cyan]Waiting for job {job_id}...",
+                f"[red]Waiting for job {job_id}...",
                 total=total_objectives
             )
         else:
             task = progress.add_task(
-                f"[cyan]Waiting for job {job_id}...",
+                f"[red]Waiting for job {job_id}...",
                 total=None
             )
         

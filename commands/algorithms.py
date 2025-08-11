@@ -16,17 +16,17 @@ from utils import (
 def print_algorithms_help():
     """Print algorithms command help using Rich"""
     console.print(Panel.fit(
-        "[bold cyan]Algorithms Command[/bold cyan] - View available attack algorithms",
+        "[bold red]Algorithms Command[/bold red] - View available attack algorithms",
         title="Algorithm Management",
-        border_style="cyan"
+        border_style="red"
     ))
     
     console.print("\n[bold]Usage:[/bold]")
-    console.print("  ga-red algorithms [cyan]<action>[/cyan] [dim][options][/dim]\n")
+    console.print("  ga-red algorithms [red]<action>[/red] [dim][options][/dim]\n")
     
     # Create actions table
-    table = Table(title="Available Actions", show_header=True, header_style="bold cyan")
-    table.add_column("Action", style="cyan", no_wrap=True)
+    table = Table(title="Available Actions", show_header=True, header_style="bold red")
+    table.add_column("Action", style="red", no_wrap=True)
     table.add_column("Description", style="white")
     
     table.add_row("list", "List available algorithms")
@@ -35,7 +35,7 @@ def print_algorithms_help():
     console.print(table)
     
     console.print("\n[dim]For help on a specific action:[/dim]")
-    console.print("  ga-red algorithms [cyan]<action>[/cyan] --help")
+    console.print("  ga-red algorithms [red]<action>[/red] --help")
     console.print()
 
 def add_parser(subparsers):
@@ -87,7 +87,7 @@ def execute(args):
 
 def list_algorithms(client: APIClient, args):
     """List all available algorithms"""
-    with console.status("[cyan]Fetching algorithms...[/cyan]"):
+    with console.status("[red]Fetching algorithms...[/red]"):
         response = client.get("/attack_algorithms")
     
     if not response:
@@ -128,7 +128,7 @@ def show_algorithm(client: APIClient, args):
     if not algorithm_name:
         return
     
-    with console.status(f"[cyan]Fetching algorithm '{algorithm_name}'...[/cyan]"):
+    with console.status(f"[red]Fetching algorithm '{algorithm_name}'...[/red]"):
         response = client.get(f"/attack_algorithms/{algorithm_name}")
     
     if not response:
@@ -139,7 +139,7 @@ def show_algorithm(client: APIClient, args):
         return
     
     # Display algorithm details
-    print_panel(f"Algorithm: {algorithm_name}", style="cyan")
+    print_panel(f"Algorithm: {algorithm_name}", style="red")
     
     # Basic info
     console.print(f"\n[bold]Name:[/bold] {response.get('name', 'N/A')}")
@@ -149,11 +149,11 @@ def show_algorithm(client: APIClient, args):
     # Display parameters if available
     params = response.get('parameters', {})
     if params:
-        console.print("\n[bold cyan]Parameters:[/bold cyan]")
+        console.print("\n[bold red]Parameters:[/bold red]")
         
         # Create parameters table
-        param_table = Table(show_header=True, header_style="bold")
-        param_table.add_column("Parameter", style="cyan")
+        param_table = Table(show_header=True, header_style="bold red")
+        param_table.add_column("Parameter", style="red")
         param_table.add_column("Type", style="yellow")
         param_table.add_column("Default", style="green")
         param_table.add_column("Description")
@@ -171,7 +171,7 @@ def show_algorithm(client: APIClient, args):
     # Display example configuration if available
     example = response.get('example_config')
     if example:
-        console.print("\n[bold cyan]Example Configuration:[/bold cyan]")
+        console.print("\n[bold red]Example Configuration:[/bold red]")
         console.print(Panel(
             Syntax(str(example), "yaml", theme="monokai"),
             expand=False
@@ -180,5 +180,5 @@ def show_algorithm(client: APIClient, args):
     # Display additional notes if available
     notes = response.get('notes')
     if notes:
-        console.print("\n[bold cyan]Notes:[/bold cyan]")
+        console.print("\n[bold red]Notes:[/bold red]")
         console.print(notes)

@@ -23,17 +23,17 @@ from utils import (
 def print_jobs_help():
     """Print jobs command help using Rich"""
     console.print(Panel.fit(
-        "[bold cyan]Jobs Command[/bold cyan] - Manage REDit jobs",
+        "[bold red]Jobs Command[/bold red] - Manage REDit jobs",
         title="Jobs Management",
-        border_style="cyan"
+        border_style="red"
     ))
     
     console.print("\n[bold]Usage:[/bold]")
-    console.print("  ga-red jobs [cyan]<action>[/cyan] [dim][options][/dim]\n")
+    console.print("  ga-red jobs [red]<action>[/red] [dim][options][/dim]\n")
     
     # Create actions table
-    table = Table(title="Available Actions", show_header=True, header_style="bold cyan")
-    table.add_column("Action", style="cyan", no_wrap=True)
+    table = Table(title="Available Actions", show_header=True, header_style="bold red")
+    table.add_column("Action", style="red", no_wrap=True)
     table.add_column("Description", style="white")
     
     table.add_row("list", "List all jobs with filters")
@@ -47,7 +47,7 @@ def print_jobs_help():
     console.print(table)
     
     console.print("\n[dim]For help on a specific action:[/dim]")
-    console.print("  ga-red jobs [cyan]<action>[/cyan] --help")
+    console.print("  ga-red jobs [red]<action>[/red] --help")
     console.print()
 
 def add_parser(subparsers):
@@ -145,7 +145,7 @@ def execute(args):
 
 def list_jobs(client: APIClient, args):
     """List all jobs"""
-    with console.status("[cyan]Fetching jobs...[/cyan]"):
+    with console.status("[red]Fetching jobs...[/red]"):
         response = client.get("/jobs")
     
     if not response:
@@ -201,7 +201,7 @@ def show_job(client: APIClient, args):
     if not job_id:
         return
     
-    with console.status(f"[cyan]Fetching job {job_id}...[/cyan]"):
+    with console.status(f"[red]Fetching job {job_id}...[/red]"):
         data = client.get(f"/jobs/{job_id}")
     
     if not data:
@@ -213,7 +213,7 @@ def show_job(client: APIClient, args):
     
     # Display job details
     job_id_display = data.get('job_id', data.get('id', 'N/A'))
-    print_panel(f"Job #{job_id_display}", style="cyan")
+    print_panel(f"Job #{job_id_display}", style="red")
     
     details = []
     details.append(f"Status: {format_status_plain(data.get('status', 'unknown'))}")
@@ -238,7 +238,7 @@ def show_results(client: APIClient, args):
     if not job_id:
         return
     
-    with console.status(f"[cyan]Fetching results for job {job_id}...[/cyan]"):
+    with console.status(f"[red]Fetching results for job {job_id}...[/red]"):
         data = client.get(f"/jobs/{job_id}/results")
     
     if not data:
@@ -261,7 +261,7 @@ def show_results(client: APIClient, args):
         print_warning("No results found")
         return
     
-    print_panel(f"Results for Job #{job_id} - {len(results)} attack(s)", style="cyan")
+    print_panel(f"Results for Job #{job_id} - {len(results)} attack(s)", style="red")
     
     for idx, result in enumerate(results, 1):
         status = "[green]✓ Success[/green]" if result.get('success') else "[red]✗ Failed[/red]"
@@ -282,7 +282,7 @@ def export_results(client: APIClient, args):
     if not job_id:
         return
     
-    with console.status(f"[cyan]Fetching results for job {job_id}...[/cyan]"):
+    with console.status(f"[red]Fetching results for job {job_id}...[/red]"):
         data = client.get(f"/jobs/{job_id}/results")
     
     if not data:
@@ -336,7 +336,7 @@ def attach_to_job(client: APIClient, args):
     
     try:
         with Progress(
-            SpinnerColumn(),
+            SpinnerColumn(style="red"),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
@@ -404,7 +404,7 @@ def delete_job(client: APIClient, args):
         jobs = response.get('jobs', [])
         deleted_count = 0
         
-        with console.status("[cyan]Deleting jobs...[/cyan]"):
+        with console.status("[red]Deleting jobs...[/red]"):
             for job in jobs:
                 job_id = job.get('job_id', job.get('id'))
                 if client.delete(f"/jobs/{job_id}"):

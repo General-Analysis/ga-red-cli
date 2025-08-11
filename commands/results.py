@@ -72,9 +72,9 @@ Examples:
 def render_job_table(jobs, selected_index):
     """Render the job table with highlighting for the selected row"""
     table = Table(title="Available Jobs - Use ↑↓ arrows to navigate, Enter to select, Ctrl+C to cancel", 
-                  show_header=True, header_style="bold cyan")
+                  show_header=True, header_style="bold red")
     
-    table.add_column("Job ID", style="cyan", no_wrap=True, width=8)
+    table.add_column("Job ID", style="red", no_wrap=True, width=8)
     table.add_column("Status", style="white", no_wrap=True, width=12)
     table.add_column("Progress", style="white", no_wrap=True, width=10)
     table.add_column("Created", style="white", no_wrap=True, width=19)
@@ -89,7 +89,7 @@ def render_job_table(jobs, selected_index):
         total = job.get('total_objectives', 0)
         
         # Apply selection highlighting
-        row_style = Style(bgcolor="blue", bold=True) if index == selected_index else Style()
+        row_style = Style(bgcolor="dark_red", bold=True) if index == selected_index else Style()
         status_formatted = format_status(status)
         
         table.add_row(
@@ -106,7 +106,7 @@ def render_job_table(jobs, selected_index):
 
 def select_job_interactive(client: APIClient) -> Optional[int]:
     """Interactive job selection using Rich table and readchar for navigation"""
-    console.print("[cyan]Fetching available jobs...[/cyan]")
+    console.print("[red]Fetching available jobs...[/red]")
     
     # Get all jobs
     response = client.get("/jobs")
@@ -162,7 +162,7 @@ def execute(args):
             return
     
     # Fetch results
-    console.print(f"[cyan]Fetching results for job {job_id}...[/cyan]")
+    console.print(f"[red]Fetching results for job {job_id}...[/red]")
     data = client.get(f"/jobs/{job_id}/results")
     
     if not data:
