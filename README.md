@@ -1,214 +1,279 @@
 # REDit CLI
 
-A beautiful command-line interface for managing and executing adversarial attacks using the REDit server, featuring Rich terminal formatting for enhanced readability.
+A powerful command-line interface for managing and executing adversarial attacks on language models using the General Analysis REDit platform.
 
-## Features
+## Quick Start
 
-- 🎨 Beautiful terminal output with Rich formatting
-- 📊 Colored tables and progress indicators
-- 🔄 Real-time job monitoring with progress bars
-- 📈 Formatted status displays and panels
-- 🎯 Syntax highlighting for configurations
+Get up and running with REDit CLI in minutes:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/generalanalysis/ga-red-cli.git
+cd ga-red-cli
+
+# 2. Install the CLI (creates virtual environment with uv)
+./install.sh
+
+# 3. Activate the virtual environment
+source .venv/bin/activate
+
+# 4. Set your API key (get it from https://art.generalanalysis.com)
+export GA_KEY="your_api_key_here"
+
+# 5. Run your first attack using a provided config
+ga-red jobs run configs/tap_basic.yaml
+
+# 6. Check job status
+ga-red jobs show
+
+# 7. View results
+ga-red jobs results
+```
 
 ## Installation
 
-### Quick Install (Recommended)
+### Prerequisites
 
-1. Navigate to the CLI directory:
-   ```bash
-   cd cli
-   ```
-
-2. Run the installation script:
-   ```bash
-   chmod +x install.sh
-   ./install.sh
-   ```
-
-   Or install manually with pip:
-   ```bash
-   pip install -e .
-   ```
-
-3. The `ga-red` command will now be available globally in your terminal!
+- Python 3.8 or higher
+- API key from [art.generalanalysis.com](https://art.generalanalysis.com)
 
 ### Setup
 
-1. Make sure you have the REDit server running at `http://localhost:8000`
-2. Set your API key:
+1. **Clone the repository:**
    ```bash
-   export GA_KEY=your_api_key
+   git clone https://github.com/generalanalysis/ga-red-cli.git
+   cd ga-red-cli
    ```
 
-## Usage
+2. **Install the CLI:**
 
-After installation, you can use `ga-red` from anywhere:
+   ```bash
+   # Run the installation script (will install uv if needed, create virtual environment, and install dependencies)
+   ./install.sh
+   
+   # Activate the virtual environment
+   source .venv/bin/activate
+   ```
+
+   The installation script will:
+   - Install `uv` if not already present (a fast Python package manager, 10-100x faster than pip)
+   - Create a virtual environment in `.venv`
+   - Install all dependencies
+   - Install the CLI in editable mode
+
+3. **Configure your API key:**
+   
+   Get your API key from the [General Analysis platform](https://art.generalanalysis.com) and set it as an environment variable:
+   
+   ```bash
+   # Option 1: Set temporarily (current session only)
+   export GA_KEY="your_api_key_here"
+   
+   # Option 2: Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+   echo 'export GA_KEY="your_api_key_here"' >> ~/.bashrc
+   source ~/.bashrc
+   
+   # Option 3: Create a .env file in the project directory
+   echo 'GA_KEY=your_api_key_here' > .env
+   ```
+
+4. **Verify installation:**
+   ```bash
+   # Make sure virtual environment is activated
+   source .venv/bin/activate
+   
+   # Test the CLI
+   ga-red --help
+   ```
+
+5. **Daily usage:**
+   ```bash
+   # Always activate the virtual environment before using the CLI
+   source .venv/bin/activate
+   
+   # Use the CLI
+   ga-red jobs list
+   
+   # Deactivate when done
+   deactivate
+   ```
+
+## CLI Commands
+
+The REDit CLI follows a consistent command structure with three main resources: `jobs`, `datasets`, and `algorithms`. All commands support interactive selection when IDs or names are not provided.
+
+### Jobs Management
+
+Manage attack jobs with comprehensive controls:
+
 ```bash
-ga-red <command> [options]
-```
-
-No need to navigate to the CLI directory or use `ga-red`!
-
-## Available Commands
-
-### 1. Jobs Management
-
-```bash
-# List all jobs (with beautiful table output)
+# List all jobs
 ga-red jobs list
+ga-red jobs list --status running --limit 10
+ga-red jobs list --json  # Output as JSON
 
-# List last 5 jobs
-ga-red jobs list --limit 5
+# Show job details (interactive selection if no ID provided)
+ga-red jobs show
+ga-red jobs show 123
+ga-red jobs show 123 --json
 
-# Filter by status
-ga-red jobs list --status completed
+# Run a new job from config
+ga-red jobs run configs/tap_basic.yaml
+ga-red jobs run configs/tap_basic.yaml --attach  # Attach after starting
+ga-red jobs run configs/tap_basic.yaml --dry-run  # Validate without running
 
-# Get job details (formatted panels)
-ga-red jobs get 123
+# View results (interactive selection if no ID provided)
+ga-red jobs results
+ga-red jobs results 123
+ga-red jobs results 123 --successful  # Only successful attacks
+ga-red jobs results 123 --failed      # Only failed attacks
+ga-red jobs results --json
 
-# Get job with results
-ga-red jobs get 123 --results
+# Export results
+ga-red jobs export --csv results.csv
+ga-red jobs export 123 --csv results.csv
+ga-red jobs export 123 --json-file results.json
 
-# Check job status
-ga-red jobs status 123
-
-# Delete a job
-ga-red jobs delete 123
-
-# Delete all jobs
-
-# Attach to a running job (monitor progress)
+# Attach to running job for live monitoring
+ga-red jobs attach  # Interactive selection
 ga-red jobs attach 123
+ga-red jobs attach 123 --interval 3  # Check every 3 seconds
 
-# Attach with custom interval
-ga-red jobs attach 123 --interval 10
-ga-red jobs delete --all
+# Delete jobs
+ga-red jobs delete  # Interactive selection
+ga-red jobs delete 123
+ga-red jobs delete --all --force  # Delete all without confirmation
 ```
 
-### 2. Run Attacks
+### Dataset Management
+
+Manage and explore attack datasets:
 
 ```bash
-# Run attack from config file
-ga-red run configs/tap_basic.yaml
+# List all datasets
+ga-red datasets list
+ga-red datasets list --json
 
-# Run and monitor status (with progress bar)
-ga-red run configs/tap_basic.yaml --monitor
+# Show dataset details (interactive selection if no name provided)
+ga-red datasets show
+ga-red datasets show my-dataset
+ga-red datasets show my-dataset --json
 
-# Run with custom check interval
-ga-red run configs/tap_basic.yaml --monitor --interval 10
+# View dataset entries with pagination
+ga-red datasets entries  # Interactive selection
+ga-red datasets entries my-dataset
+ga-red datasets entries my-dataset --limit 20 --offset 0
+ga-red datasets entries my-dataset --json
 
-# Run and wait for completion
-ga-red run configs/tap_basic.yaml --wait
+# Export dataset (interactive selection if no name provided)
+ga-red datasets export --output data.json
+ga-red datasets export my-dataset --output data.json
+ga-red datasets export my-dataset --output data.csv --format csv
+
+# Create new dataset
+ga-red datasets create my-dataset --description "My custom dataset"
+ga-red datasets create my-dataset --entries-file entries.json
+
+# Delete dataset (interactive selection if no name provided)
+ga-red datasets delete
+ga-red datasets delete my-dataset
+ga-red datasets delete my-dataset --force  # Skip confirmation
 ```
 
-### 3. Get Results
+### Algorithm Exploration
+
+View available attack algorithms and their parameters:
 
 ```bash
-# View results for a job
-ga-red results 123
+# List all algorithms
+ga-red algorithms list
+ga-red algorithms list --json
 
-# Export results to CSV
-ga-red results 123 --csv output.csv
-
-# Output results as JSON (with syntax highlighting)
-ga-red results 123 --json
-
-# Show summary only
-ga-red results 123 --summary
-
-# Filter successful attacks
-ga-red results 123 --successful
-
-# Filter failed attacks
-ga-red results 123 --failed
+# Show algorithm details (interactive selection if no name provided)
+ga-red algorithms show
+ga-red algorithms show TAP
+ga-red algorithms show TAP --json
 ```
 
-### 4. Configuration Management
+## Common Workflows
 
-```bash
-# Validate configuration
-ga-red config validate config.yaml
+### Running a Basic Attack
 
-# Display configuration (with YAML syntax highlighting)
-ga-red config show config.yaml
-
-# Convert YAML to JSON
-ga-red config convert config.yaml --output config.json
-
-# Generate template configuration
-ga-red config template tap --output my_attack.yaml
-
-# Available templates: tap, gcg, pair, basic
-ga-red config template gcg
-```
-
-## Examples
-
-### Complete Workflow
-
-1. Generate a template configuration:
+1. **Start with a provided config:**
    ```bash
-   ga-red config template tap --output my_tap_attack.yaml
+   ga-red jobs run configs/tap_basic.yaml
    ```
 
-2. Edit the configuration file with your settings
-
-3. Validate the configuration:
+2. **Monitor the job:**
    ```bash
-   ga-red config validate my_tap_attack.yaml
+   ga-red jobs attach  # Select from list
+   # Or directly with job ID
+   ga-red jobs attach 123
    ```
 
-4. Run the attack and monitor (with live progress):
+3. **Check results:**
    ```bash
-   ga-red run my_tap_attack.yaml --monitor
+   ga-red jobs results  # Select from list
    ```
 
-5. Export results to CSV:
+4. **Export results:**
    ```bash
-   ga-red results 123 --csv results.csv
+   ga-red jobs export --csv attack_results.csv
    ```
 
-### Quick Status Check
+### Interactive Mode
+
+Most commands support interactive selection when IDs or names are not provided:
 
 ```bash
-# List recent jobs (formatted table)
-ga-red jobs list --limit 10
-
-# Check specific job (colored panels)
-ga-red jobs get 456 --results
+# These will show an interactive list to select from
+ga-red jobs show      # Select a job
+ga-red jobs results   # Select a job
+ga-red jobs export    # Select a job
+ga-red datasets show  # Select a dataset
+ga-red algorithms show # Select an algorithm
 ```
 
-## Visual Features
+Use arrow keys to navigate, Enter to select, and Ctrl+C to cancel.
 
-The CLI now includes:
-- ✅ Color-coded status indicators (pending, running, completed, failed)
-- 📊 Formatted tables for job listings
-- 🎨 Syntax highlighting for YAML and JSON output
-- 📈 Progress bars for monitoring operations
-- 🔲 Styled panels for important information
-- 🌈 Rich text formatting throughout
+### Working with Custom Configs
 
-## Environment Variables
+For detailed information about configuration formats and attack types, please visit the [General Analysis documentation](https://docs.generalanalysis.com).
 
-- `GA_KEY`: API key for authentication (required)
-- `REDIT_API_URL`: REDit server URL (default: http://localhost:8000)
+### Example Config Files
 
-## Help
+The repository includes example configurations in the `configs/` directory:
+- `tap_basic.yaml` - Basic TAP attack configuration
+- `tap_basic_harmbench.yaml` - TAP attack with HarmBench dataset
 
-Get help for any command:
-```bash
-ga-red --help
-ga-red jobs --help
-ga-red run --help
-ga-red results --help
-ga-red config --help
-```
+## Platform Access
 
-## Requirements
+- **Web Platform:** Visit [art.generalanalysis.com](https://art.generalanalysis.com) for the full web interface
+- **API Key:** Generate your API key from the platform settings
+- **Documentation:** Complete documentation available at [docs.generalanalysis.com](https://docs.generalanalysis.com)
 
-- Python 3.7+
-- Dependencies:
-  - `pyyaml` - YAML configuration parsing
-  - `requests` - HTTP client for API calls
-  - `python-dotenv` - Environment variable management
-  - `rich` - Terminal formatting and styling
+## Troubleshooting
+
+### API Key Issues
+
+If you encounter authentication errors:
+1. Verify your API key is set: `echo $GA_KEY`
+2. Ensure the key is valid and active on the platform
+3. Check for typos or extra spaces in the key
+
+### Connection Issues
+
+If you cannot connect to the server:
+1. Check your internet connection
+2. Verify the API server is accessible
+3. Ensure your firewall allows HTTPS connections
+
+## Support
+
+For additional help:
+- Visit the [documentation](https://docs.generalanalysis.com)
+- Contact support through the [platform](https://art.generalanalysis.com)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

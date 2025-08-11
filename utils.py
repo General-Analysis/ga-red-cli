@@ -7,9 +7,10 @@ import sys
 import json
 import requests
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 import dotenv
+import readchar
 
 from rich.console import Console
 from rich.table import Table
@@ -20,6 +21,8 @@ from rich.prompt import Confirm
 from rich import print as rprint
 from rich.text import Text
 from rich.json import JSON
+from rich.live import Live
+from rich.style import Style
 
 # Load environment variables
 dotenv.load_dotenv()
@@ -34,10 +37,11 @@ class APIClient:
         """Initialize API client
         
         Args:
-            base_url: Base URL for the API (default: http://localhost:8000)
+            base_url: Base URL for the API (default: https://art-server.generalanalysis.com)
             api_key: API key for authentication (default: from GA_KEY env var)
         """
-        self.base_url = base_url or os.environ.get("REDIT_API_URL", "http://localhost:8000")
+        self.base_url = base_url or os.environ.get("REDIT_API_URL", "https://art-server.generalanalysis.com")
+        print(self.base_url)
         self.api_key = api_key or os.environ.get("GA_KEY")
         
         if not self.api_key:
@@ -236,3 +240,205 @@ def create_progress_bar() -> Progress:
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         console=console
     )
+
+def interactive_select(
+    items: List[Dict[str, Any]], 
+    title: str = "Select an item",
+    columns: List[Dict[str, str]] = None,
+    id_field: str = 'id',
+    allow_none: bool = True
+) -> Optional[Any]:
+    """
+    Interactive selection from a list of items using arrow keys.
+    
+    Args:
+        items: List of dictionaries containing the items
+        title: Title for the selection table
+        columns: List of column definitions [{"key": "field_name", "header": "Display Name", "style": "cyan"}]
+        id_field: Field to return when item is selected
+        allow_none: Whether to allow cancelling selection (returns None)
+    
+    Returns:
+        Selected item's id_field value or None if cancelled
+    """
+    if not items:
+        console.print("[yellow]No items available for selection[/yellow]")
+        return None
+    
+    if columns is None:
+        # Default columns if not specified
+        columns = [{"key": id_field, "header": "ID", "style": "cyan"}]
+    
+    selected_index = 0
+    
+    def render_table(selected_idx):
+        table = Table(
+            title=f"{title} - Use ↑↓ arrows to navigate, Enter to select" + 
+                  (", Ctrl+C to cancel" if allow_none else ""),
+            show_header=True, 
+            header_style="bold cyan"
+        )
+        
+        # Add columns
+        for col in columns:
+            table.add_column(
+                col.get("header", col["key"]), 
+                style=col.get("style", "white"),
+                no_wrap=col.get("no_wrap", False),
+                width=col.get("width"),
+                max_width=col.get("max_width"),
+                overflow=col.get("overflow", "fold")
+            )
+        
+        # Add rows with selection highlighting
+        for idx, item in enumerate(items):
+            row_style = Style(bgcolor="blue", bold=True) if idx == selected_idx else Style()
+            row_data = []
+            
+            for col in columns:
+                value = item.get(col["key"], "N/A")
+                # Apply any custom formatting
+                if "formatter" in col and callable(col["formatter"]):
+                    value = col["formatter"](value)
+                else:
+                    value = str(value) if value is not None else "N/A"
+                row_data.append(value)
+            
+            table.add_row(*row_data, style=row_style)
+        
+        return table
+    
+    try:
+        with Live(render_table(selected_index), console=console, auto_refresh=False) as live:
+            while True:
+                try:
+                    key = readchar.readkey()
+                    
+                    if key == readchar.key.UP:
+                        selected_index = (selected_index - 1) % len(items)
+                        live.update(render_table(selected_index), refresh=True)
+                    elif key == readchar.key.DOWN:
+                        selected_index = (selected_index + 1) % len(items)
+                        live.update(render_table(selected_index), refresh=True)
+                    elif key == readchar.key.ENTER or key == '\r' or key == '\n':
+                        selected_item = items[selected_index]
+                        return selected_item.get(id_field)
+                    elif allow_none and (key == readchar.key.CTRL_C or key == '\x03'):
+                        return None
+                        
+                except KeyboardInterrupt:
+                    if allow_none:
+                        return None
+                    continue
+                    
+    except KeyboardInterrupt:
+        if allow_none:
+            console.print("\n[yellow]Selection cancelled[/yellow]")
+            return None
+        raise
+    except Exception as e:
+        console.print(f"[red]Error in selection: {e}[/red]")
+        return None
+
+def select_job(client: APIClient, job_id: Optional[int] = None) -> Optional[int]:
+    """
+    Select a job interactively or return the provided job_id.
+    
+    Args:
+        client: API client instance
+        job_id: Optional job ID. If None, shows interactive selection
+    
+    Returns:
+        Selected or provided job ID, or None if cancelled
+    """
+    if job_id is not None:
+        return job_id
+    
+    console.print("[cyan]Fetching available jobs...[/cyan]")
+    response = client.get("/jobs")
+    if not response:
+        return None
+    
+    jobs = response.get('jobs', [])
+    if not jobs:
+        console.print("[yellow]No jobs found[/yellow]")
+        return None
+    
+    columns = [
+        {"key": "job_id", "header": "Job ID", "style": "cyan", "no_wrap": True, "width": 8},
+        {"key": "status", "header": "Status", "formatter": format_status_plain, "no_wrap": True, "width": 12},
+        {"key": "progress", "header": "Progress", "no_wrap": True, "width": 10,
+         "formatter": lambda j: f"{j.get('completed_objectives', 0)}/{j.get('total_objectives', 0)}"},
+        {"key": "created_at", "header": "Created", "formatter": format_datetime, "no_wrap": True, "width": 19},
+        {"key": "description", "header": "Description", "max_width": 50, "overflow": "ellipsis"}
+    ]
+    
+    # Transform job data to include calculated fields
+    for job in jobs:
+        job['progress'] = job  # Pass the whole job object for the formatter
+    
+    return interactive_select(jobs, "Select a Job", columns, id_field="job_id")
+
+def select_dataset(client: APIClient, dataset_name: Optional[str] = None) -> Optional[str]:
+    """
+    Select a dataset interactively or return the provided dataset_name.
+    
+    Args:
+        client: API client instance
+        dataset_name: Optional dataset name. If None, shows interactive selection
+    
+    Returns:
+        Selected or provided dataset name, or None if cancelled
+    """
+    if dataset_name is not None:
+        return dataset_name
+    
+    console.print("[cyan]Fetching available datasets...[/cyan]")
+    response = client.get("/datasets")
+    if not response:
+        return None
+    
+    datasets = response.get('datasets', response) if isinstance(response, dict) else response
+    if not datasets:
+        console.print("[yellow]No datasets found[/yellow]")
+        return None
+    
+    columns = [
+        {"key": "name", "header": "Dataset Name", "style": "cyan", "no_wrap": True},
+        {"key": "size", "header": "Entries", "no_wrap": True, "width": 10},
+        {"key": "description", "header": "Description", "max_width": 50, "overflow": "ellipsis"},
+        {"key": "created_at", "header": "Created", "formatter": format_datetime, "no_wrap": True}
+    ]
+    
+    return interactive_select(datasets, "Select a Dataset", columns, id_field="name")
+
+def select_algorithm(client: APIClient, algorithm_name: Optional[str] = None) -> Optional[str]:
+    """
+    Select an algorithm interactively or return the provided algorithm_name.
+    
+    Args:
+        client: API client instance
+        algorithm_name: Optional algorithm name. If None, shows interactive selection
+    
+    Returns:
+        Selected or provided algorithm name, or None if cancelled
+    """
+    if algorithm_name is not None:
+        return algorithm_name
+    
+    console.print("[cyan]Fetching available algorithms...[/cyan]")
+    response = client.get("/attack_algorithms")
+    if not response:
+        return None
+    
+    algorithms = response.get('algorithms', [])
+    if not algorithms:
+        console.print("[yellow]No algorithms found[/yellow]")
+        return None
+    
+    columns = [
+        {"key": "name", "header": "Algorithm", "style": "cyan", "no_wrap": True},
+        {"key": "description", "header": "Description", "max_width": 60, "overflow": "ellipsis"}
+    ]
+    
+    return interactive_select(algorithms, "Select an Algorithm", columns, id_field="name")

@@ -1,15 +1,17 @@
 """
-Datasets command - Manage datasets and their entries
+Datasets command - Manage datasets with consistent verbs
 """
 
 import sys
 import argparse
 import json
+from pathlib import Path
 from rich.panel import Panel
 from rich.table import Table
 from utils import (
     APIClient, create_table, console, print_success, print_error,
-    print_warning, print_info, print_panel, print_json, confirm_action
+    print_warning, print_info, print_panel, print_json, confirm_action,
+    select_dataset, format_datetime, save_to_csv
 )
 
 def print_datasets_help():
@@ -29,11 +31,11 @@ def print_datasets_help():
     table.add_column("Description", style="white")
     
     table.add_row("list", "List all datasets")
-    table.add_row("get", "Get dataset details and entries")
-    table.add_row("create", "Create a new dataset")
-    table.add_row("delete", "Delete a dataset")
-    table.add_row("entries", "View dataset entries with pagination")
-    table.add_row("add-entries", "Add entries to an existing dataset")
+    table.add_row("show [name]", "Show dataset details (interactive if no name)")
+    table.add_row("entries [name]", "View/paginate entries (interactive if no name)")
+    table.add_row("export [name]", "Export dataset to JSON/CSV (interactive if no name)")
+    table.add_row("create", "Create new dataset")
+    table.add_row("delete [name]", "Delete dataset (interactive if no name)")
     
     console.print(table)
     
@@ -45,10 +47,10 @@ def add_parser(subparsers):
     """Add datasets command parser"""
     parser = subparsers.add_parser(
         'datasets',
-        help='Manage datasets and their entries',
+        help='Manage datasets',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description='Manage datasets and their entries',
-        add_help=False  # We'll handle help ourselves
+        add_help=False
     )
     
     # Check if user is asking for help at datasets level
@@ -64,75 +66,39 @@ def add_parser(subparsers):
     
     # List command
     list_parser = subparsers.add_parser('list', help='List all datasets')
-    list_parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Output as JSON'
-    )
+    list_parser.add_argument('--json', action='store_true', help='Output as JSON')
     
-    # Get command
-    get_parser = subparsers.add_parser('get', help='Get dataset details and entries')
-    get_parser.add_argument('dataset_name', help='Dataset name')
-    get_parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Output as JSON'
-    )
-    get_parser.add_argument(
-        '--entries-only',
-        action='store_true',
-        help='Show only entries, not dataset metadata'
-    )
-    
-    # Create command
-    create_parser = subparsers.add_parser('create', help='Create a new dataset')
-    create_parser.add_argument('name', help='Dataset name')
-    create_parser.add_argument(
-        '--description', '-d',
-        help='Dataset description'
-    )
-    create_parser.add_argument(
-        '--entries-file',
-        help='JSON file containing initial entries (array of {prompt, goal} objects)'
-    )
-    
-    # Delete command
-    delete_parser = subparsers.add_parser('delete', help='Delete a dataset')
-    delete_parser.add_argument('dataset_name', help='Dataset name to delete')
-    delete_parser.add_argument(
-        '--force', '-f',
-        action='store_true',
-        help='Skip confirmation'
-    )
+    # Show command
+    show_parser = subparsers.add_parser('show', help='Show dataset details')
+    show_parser.add_argument('dataset_name', nargs='?', help='Dataset name (interactive if not provided)')
+    show_parser.add_argument('--json', action='store_true', help='Output as JSON')
     
     # Entries command
-    entries_parser = subparsers.add_parser('entries', help='View dataset entries with pagination')
-    entries_parser.add_argument('dataset_name', help='Dataset name')
-    entries_parser.add_argument(
-        '--limit', '-l',
-        type=int,
-        help='Number of entries to display'
-    )
-    entries_parser.add_argument(
-        '--offset', '-o',
-        type=int,
-        default=0,
-        help='Number of entries to skip (default: 0)'
-    )
-    entries_parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Output as JSON'
-    )
+    entries_parser = subparsers.add_parser('entries', help='View dataset entries')
+    entries_parser.add_argument('dataset_name', nargs='?', help='Dataset name (interactive if not provided)')
+    entries_parser.add_argument('--limit', type=int, default=10, help='Number of entries to show')
+    entries_parser.add_argument('--offset', type=int, default=0, help='Number of entries to skip')
+    entries_parser.add_argument('--json', action='store_true', help='Output as JSON')
     
-    # Add entries command
-    add_entries_parser = subparsers.add_parser('add-entries', help='Add entries to an existing dataset')
-    add_entries_parser.add_argument('dataset_name', help='Dataset name')
-    add_entries_parser.add_argument('entries_file', help='JSON file containing entries to add')
+    # Export command
+    export_parser = subparsers.add_parser('export', help='Export dataset')
+    export_parser.add_argument('dataset_name', nargs='?', help='Dataset name (interactive if not provided)')
+    export_parser.add_argument('--output', '-o', required=True, help='Output file path')
+    export_parser.add_argument('--format', choices=['json', 'csv'], default='json', help='Export format')
+    
+    # Create command
+    create_parser = subparsers.add_parser('create', help='Create new dataset')
+    create_parser.add_argument('name', help='Dataset name')
+    create_parser.add_argument('--description', '-d', help='Dataset description')
+    create_parser.add_argument('--entries-file', help='JSON file with initial entries')
+    
+    # Delete command
+    delete_parser = subparsers.add_parser('delete', help='Delete dataset')
+    delete_parser.add_argument('dataset_name', nargs='?', help='Dataset name (interactive if not provided)')
+    delete_parser.add_argument('--force', '-f', action='store_true', help='Skip confirmation')
 
 def execute(args):
     """Execute datasets command"""
-    # Check if help was requested
     if hasattr(args, 'help') and args.help:
         print_datasets_help()
         return
@@ -145,16 +111,16 @@ def execute(args):
     
     if args.action == 'list':
         list_datasets(client, args)
-    elif args.action == 'get':
-        get_dataset(client, args)
+    elif args.action == 'show':
+        show_dataset(client, args)
+    elif args.action == 'entries':
+        show_entries(client, args)
+    elif args.action == 'export':
+        export_dataset(client, args)
     elif args.action == 'create':
         create_dataset(client, args)
     elif args.action == 'delete':
         delete_dataset(client, args)
-    elif args.action == 'entries':
-        get_dataset_entries(client, args)
-    elif args.action == 'add-entries':
-        add_dataset_entries(client, args)
 
 def list_datasets(client: APIClient, args):
     """List all datasets"""
@@ -164,46 +130,39 @@ def list_datasets(client: APIClient, args):
     if not response:
         return
     
-    datasets = response if isinstance(response, list) else response.get('datasets', [])
+    datasets = response.get('datasets', response) if isinstance(response, dict) else response
     
     if not datasets:
         print_warning("No datasets found")
         return
     
-    # Output as JSON if requested
     if hasattr(args, 'json') and args.json:
         print_json(datasets, title="Datasets")
         return
     
     # Create table
-    headers = ["Name", "Description", "Size", "Created", "Updated"]
+    headers = ["Name", "Entries", "Description", "Created"]
     rows = []
     
     for dataset in datasets:
-        name = dataset.get('name', 'N/A')
-        description = dataset.get('description', '')
-        desc_display = description[:40] + "..." if description and len(description) > 40 else description or 'N/A'
-        size = dataset.get('size', 0)
-        created = dataset.get('created_at', '')[:16] if dataset.get('created_at') else 'N/A'
-        updated = dataset.get('updated_at', '')[:16] if dataset.get('updated_at') else 'N/A'
+        desc = dataset.get('description', 'N/A')
+        desc_display = desc[:40] + "..." if len(desc) > 40 else desc
         
         rows.append([
-            name,
+            dataset.get('name', 'N/A'),
+            str(dataset.get('size', dataset.get('entries_count', 0))),
             desc_display,
-            str(size),
-            created,
-            updated
+            format_datetime(dataset.get('created_at', ''))
         ])
     
     table = create_table(f"Found {len(datasets)} dataset(s)", headers, rows)
     console.print(table)
-    
-    # Print usage tip
-    console.print(f"\n[dim]Use 'ga-red datasets get <name>' for detailed information[/dim]")
 
-def get_dataset(client: APIClient, args):
-    """Get dataset details"""
-    dataset_name = args.dataset_name
+def show_dataset(client: APIClient, args):
+    """Show dataset details"""
+    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_name:
+        return
     
     with console.status(f"[cyan]Fetching dataset '{dataset_name}'...[/cyan]"):
         data = client.get(f"/datasets/{dataset_name}")
@@ -211,62 +170,141 @@ def get_dataset(client: APIClient, args):
     if not data:
         return
     
-    # Output as JSON if requested
     if hasattr(args, 'json') and args.json:
         print_json(data, title=f"Dataset: {dataset_name}")
         return
     
-    dataset = data
-    entries = dataset.get('entries', [])
+    # Display dataset details
+    print_panel(f"Dataset: {dataset_name}", style="cyan")
     
-    if args.entries_only:
-        # Show only entries
-        if entries:
-            console.print(f"\n[bold cyan]Entries for '{dataset_name}' ({len(entries)} total):[/bold cyan]")
-            for i, entry in enumerate(entries[:10], 1):  # Show first 10
-                console.print(f"\n  [bold]Entry {i}:[/bold]")
-                console.print(f"    [dim]Goal:[/dim] {entry.get('goal', 'N/A')}")
-                console.print(f"    [dim]Prompt:[/dim] {entry.get('prompt', 'N/A')[:100]}...")
-            if len(entries) > 10:
-                console.print(f"\n  [dim]... and {len(entries) - 10} more entries[/dim]")
-        else:
-            print_warning("No entries found")
+    details = []
+    details.append(f"Name: {data.get('name', 'N/A')}")
+    details.append(f"Description: {data.get('description', 'N/A')}")
+    details.append(f"Entries: {data.get('size', data.get('entries_count', 0))}")
+    details.append(f"Created: {format_datetime(data.get('created_at', ''))}")
+    
+    console.print("\n".join(details))
+    
+    # Show sample entries if available
+    entries = data.get('entries', [])
+    if entries:
+        console.print("\n[bold]Sample Entries:[/bold]")
+        for idx, entry in enumerate(entries[:3], 1):
+            console.print(f"\n  Entry {idx}:")
+            console.print(f"    Prompt: {entry.get('prompt', '')[:100]}...")
+            console.print(f"    Goal: {entry.get('goal', '')[:100]}...")
+
+def show_entries(client: APIClient, args):
+    """Show dataset entries with pagination"""
+    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_name:
         return
     
-    # Create dataset info panel
-    info_lines = []
-    info_lines.append(f"[bold]Name:[/bold] {dataset.get('name', 'N/A')}")
-    info_lines.append(f"[bold]Description:[/bold] {dataset.get('description', 'N/A')}")
-    info_lines.append(f"[bold]Size:[/bold] {dataset.get('size', 0)} entries")
-    info_lines.append(f"[bold]Created:[/bold] {dataset.get('created_at', 'N/A')}")
-    info_lines.append(f"[bold]Updated:[/bold] {dataset.get('updated_at', 'N/A')}")
+    limit = getattr(args, 'limit', 10)
+    offset = getattr(args, 'offset', 0)
     
-    print_panel("\n".join(info_lines), title=f"Dataset: {dataset_name}", style="cyan")
+    # Build endpoint with parameters
+    endpoint = f"/datasets/{dataset_name}/entries"
+    params = []
+    if limit:
+        params.append(f"limit={limit}")
+    if offset:
+        params.append(f"offset={offset}")
+    if params:
+        endpoint += "?" + "&".join(params)
     
-    # Show sample entries
-    if entries:
-        console.print(f"\n[bold cyan]Sample entries ({len(entries)} total):[/bold cyan]")
-        for i, entry in enumerate(entries[:3], 1):
-            console.print(f"\n  [bold]Entry {i}:[/bold]")
-            console.print(f"    [dim]Goal:[/dim] {entry.get('goal', 'N/A')}")
-            console.print(f"    [dim]Prompt:[/dim] {entry.get('prompt', 'N/A')[:100]}...")
+    with console.status(f"[cyan]Fetching entries for '{dataset_name}'...[/cyan]"):
+        data = client.get(endpoint)
+    
+    if not data:
+        return
+    
+    # Handle different response formats
+    if isinstance(data, list):
+        entries = data
+        total = len(entries)
+    else:
+        entries = data.get('entries', [])
+        total = data.get('total', len(entries))
+    
+    if hasattr(args, 'json') and args.json:
+        print_json({'dataset': dataset_name, 'entries': entries, 'total': total})
+        return
+    
+    if not entries:
+        print_warning("No entries found")
+        return
+    
+    # Display entries
+    print_panel(
+        f"Dataset: {dataset_name} - Showing {len(entries)} entries (offset={offset})",
+        style="cyan"
+    )
+    
+    for idx, entry in enumerate(entries, 1 + offset):
+        console.print(f"\n[bold]Entry {idx}:[/bold]")
+        console.print(f"  Prompt: {entry.get('prompt', '')}")
+        console.print(f"  Goal: {entry.get('goal', '')}")
+    
+    if limit and len(entries) == limit:
+        console.print(f"\n[dim]Use --offset {offset + limit} to see more entries[/dim]")
+
+def export_dataset(client: APIClient, args):
+    """Export dataset to file"""
+    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_name:
+        return
+    
+    with console.status(f"[cyan]Fetching dataset '{dataset_name}'...[/cyan]"):
+        data = client.get(f"/datasets/{dataset_name}")
+    
+    if not data:
+        return
+    
+    output_file = Path(args.output)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    if args.format == 'csv':
+        entries = data.get('entries', [])
         
-        if len(entries) > 3:
-            console.print(f"\n  [dim]... and {len(entries) - 3} more entries[/dim]")
-            console.print(f"  [dim]Use 'ga-red datasets entries {dataset_name}' to see all entries[/dim]")
+        if not entries:
+            print_warning("No entries to export")
+            return
+        
+        fieldnames = ['index', 'prompt', 'goal']
+        csv_data = []
+        
+        for idx, entry in enumerate(entries, 1):
+            csv_data.append({
+                'index': idx,
+                'prompt': entry.get('prompt', ''),
+                'goal': entry.get('goal', '')
+            })
+        
+        save_to_csv(csv_data, str(output_file), fieldnames)
+    else:
+        # Export as JSON
+        with open(output_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        print_success(f"Dataset exported to: {output_file.absolute()}")
 
 def create_dataset(client: APIClient, args):
     """Create a new dataset"""
     dataset_data = {
-        "name": args.name,
-        "description": args.description or "",
-        "entries": []
+        'name': args.name,
+        'description': getattr(args, 'description', '')
     }
     
     # Load entries from file if provided
-    if args.entries_file:
+    if getattr(args, 'entries_file', None):
+        entries_file = Path(args.entries_file)
+        if not entries_file.exists():
+            print_error(f"Entries file not found: {entries_file}")
+            return
+        
         try:
-            with open(args.entries_file, 'r') as f:
+            with open(entries_file, 'r') as f:
                 entries = json.load(f)
             
             # Validate entries format
@@ -279,140 +317,42 @@ def create_dataset(client: APIClient, args):
                     print_error(f"Entry {i+1} must have 'prompt' and 'goal' fields")
                     return
             
-            dataset_data["entries"] = entries
+            dataset_data['entries'] = entries
             console.print(f"[green]Loaded {len(entries)} entries from {args.entries_file}[/green]")
             
-        except FileNotFoundError:
-            print_error(f"Entries file not found: {args.entries_file}")
-            return
         except json.JSONDecodeError as e:
             print_error(f"Invalid JSON in entries file: {e}")
             return
+        except Exception as e:
+            print_error(f"Failed to load entries file: {e}")
+            return
     
     with console.status(f"[cyan]Creating dataset '{args.name}'...[/cyan]"):
-        response = client.post("/datasets", json=dataset_data)
+        response = client.post("/datasets", dataset_data)
     
     if response:
-        entries_count = len(response.get('entries', []))
-        print_success(f"Dataset '{args.name}' created successfully with {entries_count} entries")
+        print_success(f"Dataset '{args.name}' created successfully")
         
         # Show brief info
         info_lines = []
-        info_lines.append(f"[bold]Name:[/bold] {response.get('name')}")
+        info_lines.append(f"[bold]Name:[/bold] {response.get('name', args.name)}")
         info_lines.append(f"[bold]Description:[/bold] {response.get('description', 'N/A')}")
-        info_lines.append(f"[bold]Entries:[/bold] {entries_count}")
+        info_lines.append(f"[bold]Entries:[/bold] {len(response.get('entries', []))}")
         
         print_panel("\n".join(info_lines), title="Created Dataset", style="green")
 
 def delete_dataset(client: APIClient, args):
     """Delete a dataset"""
-    dataset_name = args.dataset_name
+    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_name:
+        return
     
-    if not args.force:
-        if not confirm_action(f"[red]Are you sure you want to delete dataset '{dataset_name}' and all its entries?[/red]"):
-            print_warning("Cancelled")
+    if not getattr(args, 'force', False):
+        if not confirm_action(f"Delete dataset '{dataset_name}'?"):
+            print_info("Deletion cancelled")
             return
     
-    with console.status(f"[red]Deleting dataset '{dataset_name}'...[/red]"):
-        response = client.delete(f"/datasets/{dataset_name}")
-    
-    if response:
-        print_success(f"Dataset '{dataset_name}' deleted successfully")
-
-def get_dataset_entries(client: APIClient, args):
-    """Get dataset entries with pagination"""
-    dataset_name = args.dataset_name
-    endpoint = f"/datasets/{dataset_name}/entries"
-    
-    # Build query parameters manually
-    query_params = []
-    if args.limit:
-        query_params.append(f"limit={args.limit}")
-    if args.offset:
-        query_params.append(f"offset={args.offset}")
-    
-    if query_params:
-        endpoint += "?" + "&".join(query_params)
-    
-    with console.status(f"[cyan]Fetching entries for '{dataset_name}'...[/cyan]"):
-        entries = client.get(endpoint)
-    
-    if not entries:
-        return
-    
-    if not isinstance(entries, list):
-        entries = entries.get('entries', [])
-    
-    if not entries:
-        print_warning("No entries found")
-        return
-    
-    # Output as JSON if requested
-    if hasattr(args, 'json') and args.json:
-        print_json(entries, title=f"Entries for {dataset_name}")
-        return
-    
-    # Create table
-    headers = ["ID", "Goal", "Prompt", "Created"]
-    rows = []
-    
-    for entry in entries:
-        entry_id = entry.get('id', 'N/A')
-        goal = entry.get('goal', 'N/A')
-        goal_display = goal[:40] + "..." if len(goal) > 40 else goal
-        prompt = entry.get('prompt', 'N/A')
-        prompt_display = prompt[:50] + "..." if len(prompt) > 50 else prompt
-        created = entry.get('created_at', '')[:16] if entry.get('created_at') else 'N/A'
-        
-        rows.append([
-            str(entry_id),
-            goal_display,
-            prompt_display,
-            created
-        ])
-    
-    title = f"Entries for '{dataset_name}'"
-    if args.limit or args.offset:
-        title += f" (limit={args.limit or 'all'}, offset={args.offset})"
-    
-    table = create_table(title, headers, rows)
-    console.print(table)
-    
-    if args.limit and len(entries) == args.limit:
-        console.print(f"\n[dim]Use --offset {args.offset + args.limit} to see more entries[/dim]")
-
-def add_dataset_entries(client: APIClient, args):
-    """Add entries to an existing dataset"""
-    dataset_name = args.dataset_name
-    entries_file = args.entries_file
-    
-    # Load entries from file
-    try:
-        with open(entries_file, 'r') as f:
-            entries = json.load(f)
-        
-        # Validate entries format
-        if not isinstance(entries, list):
-            print_error("Entries file must contain a JSON array")
-            return
-        
-        for i, entry in enumerate(entries):
-            if not isinstance(entry, dict) or 'prompt' not in entry or 'goal' not in entry:
-                print_error(f"Entry {i+1} must have 'prompt' and 'goal' fields")
-                return
-        
-        console.print(f"[green]Loaded {len(entries)} entries from {entries_file}[/green]")
-        
-    except FileNotFoundError:
-        print_error(f"Entries file not found: {entries_file}")
-        return
-    except json.JSONDecodeError as e:
-        print_error(f"Invalid JSON in entries file: {e}")
-        return
-    
-    with console.status(f"[cyan]Adding {len(entries)} entries to '{dataset_name}'...[/cyan]"):
-        response = client.post(f"/datasets/{dataset_name}/entries", json=entries)
-    
-    if response:
-        added_count = len(response) if isinstance(response, list) else len(response.get('entries', []))
-        print_success(f"Added {added_count} entries to dataset '{dataset_name}'")
+    if client.delete(f"/datasets/{dataset_name}"):
+        print_success(f"Dataset '{dataset_name}' deleted")
+    else:
+        print_error(f"Failed to delete dataset '{dataset_name}'")

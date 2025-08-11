@@ -73,7 +73,7 @@ def run_job(config_path: str, monitor: bool = False):
         sys.exit(1)
     
     # Prepare the API request
-    api_url = "http://localhost:8000/run"
+    api_url = os.environ.get("REDIT_API_URL", "https://art-server.generalanalysis.com") + "/run"
     
     payload = {
         "description": config.get("description", ""),
@@ -91,7 +91,7 @@ def run_job(config_path: str, monitor: bool = False):
         response = requests.post(api_url, json=payload, headers=headers)
     except requests.exceptions.ConnectionError:
         print("❌ Error: Could not connect to REDit server")
-        print("Make sure the server is running at localhost:8000")
+        print("Make sure the server is running and accessible")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Error making request: {e}")
@@ -114,7 +114,8 @@ def run_job(config_path: str, monitor: bool = False):
                 time.sleep(5)  # Wait 5 seconds between checks
                 
                 try:
-                    status_url = f"http://localhost:8000/jobs/{job_id}"
+                    base_url = os.environ.get("REDIT_API_URL", "https://art-server.generalanalysis.com")
+                    status_url = f"{base_url}/jobs/{job_id}"
                     status_response = requests.get(status_url, headers=headers)
                     
                     if status_response.status_code == 200:

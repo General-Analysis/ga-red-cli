@@ -1,14 +1,16 @@
 """
-Algorithms command - List and view available attack algorithms
+Algorithms command - View available attack algorithms with consistent verbs
 """
 
 import sys
 import argparse
 from rich.panel import Panel
 from rich.table import Table
+from rich.markdown import Markdown
+from rich.syntax import Syntax
 from utils import (
     APIClient, create_table, console, print_success, print_error,
-    print_warning, print_info, print_panel, print_json
+    print_warning, print_info, print_panel, print_json, select_algorithm
 )
 
 def print_algorithms_help():
@@ -27,8 +29,8 @@ def print_algorithms_help():
     table.add_column("Action", style="cyan", no_wrap=True)
     table.add_column("Description", style="white")
     
-    table.add_row("list", "List all available algorithms")
-    table.add_row("get", "Get algorithm details")
+    table.add_row("list", "List available algorithms")
+    table.add_row("show [name]", "Show algorithm details with params (interactive if no name)")
     
     console.print(table)
     
@@ -43,7 +45,7 @@ def add_parser(subparsers):
         help='View available attack algorithms',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description='View and explore available attack algorithms',
-        add_help=False  # We'll handle help ourselves
+        add_help=False
     )
     
     # Check if user is asking for help at algorithms level
@@ -58,25 +60,16 @@ def add_parser(subparsers):
     subparsers = parser.add_subparsers(dest='action', help='Action to perform')
     
     # List command
-    list_parser = subparsers.add_parser('list', help='List all available algorithms')
-    list_parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Output as JSON'
-    )
+    list_parser = subparsers.add_parser('list', help='List available algorithms')
+    list_parser.add_argument('--json', action='store_true', help='Output as JSON')
     
-    # Get command
-    get_parser = subparsers.add_parser('get', help='Get algorithm details')
-    get_parser.add_argument('algorithm_name', help='Algorithm name')
-    get_parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Output as JSON'
-    )
+    # Show command (replaces get)
+    show_parser = subparsers.add_parser('show', help='Show algorithm details')
+    show_parser.add_argument('algorithm_name', nargs='?', help='Algorithm name (interactive if not provided)')
+    show_parser.add_argument('--json', action='store_true', help='Output as JSON')
 
 def execute(args):
     """Execute algorithms command"""
-    # Check if help was requested
     if hasattr(args, 'help') and args.help:
         print_algorithms_help()
         return
@@ -89,8 +82,8 @@ def execute(args):
     
     if args.action == 'list':
         list_algorithms(client, args)
-    elif args.action == 'get':
-        get_algorithm(client, args)
+    elif args.action == 'show':
+        show_algorithm(client, args)
 
 def list_algorithms(client: APIClient, args):
     """List all available algorithms"""
@@ -100,83 +93,92 @@ def list_algorithms(client: APIClient, args):
     if not response:
         return
     
-    # Extract algorithms list from response
-    algorithms = response if isinstance(response, list) else response.get('algorithms', [])
+    algorithms = response.get('algorithms', [])
     
     if not algorithms:
         print_warning("No algorithms found")
         return
     
-    # Output as JSON if requested
     if hasattr(args, 'json') and args.json:
         print_json(algorithms, title="Algorithms")
         return
     
     # Create table
-    headers = ["Name", "Description"]
+    headers = ["Name", "Description", "Category"]
     rows = []
     
     for algo in algorithms:
-        name = algo.get('name', 'N/A')
-        description = algo.get('description', 'N/A')
-        # Truncate description if too long
-        desc_display = description[:80] + "..." if len(description) > 80 else description
+        desc = algo.get('description', 'N/A')
+        desc_display = desc[:60] + "..." if len(desc) > 60 else desc
         
         rows.append([
-            name,
-            desc_display
+            algo.get('name', 'N/A'),
+            desc_display,
+            algo.get('category', 'N/A')
         ])
     
     table = create_table(f"Found {len(algorithms)} algorithm(s)", headers, rows)
     console.print(table)
     
-    # Print usage tip
-    console.print(f"\n[dim]Use 'ga-red algorithms get <name>' for detailed information[/dim]")
+    console.print("\n[dim]Use 'ga-red algorithms show <name>' for detailed information[/dim]")
 
-def get_algorithm(client: APIClient, args):
-    """Get algorithm details"""
-    algorithm_name = args.algorithm_name
+def show_algorithm(client: APIClient, args):
+    """Show algorithm details"""
+    algorithm_name = select_algorithm(client, getattr(args, 'algorithm_name', None))
+    if not algorithm_name:
+        return
     
     with console.status(f"[cyan]Fetching algorithm '{algorithm_name}'...[/cyan]"):
-        data = client.get(f"/attack_algorithms/{algorithm_name}")
+        response = client.get(f"/attack_algorithms/{algorithm_name}")
     
-    if not data:
+    if not response:
         return
     
-    # Output as JSON if requested
     if hasattr(args, 'json') and args.json:
-        print_json(data, title=f"Algorithm: {algorithm_name}")
+        print_json(response, title=f"Algorithm: {algorithm_name}")
         return
     
-    # Pretty print algorithm details
-    algorithm = data
+    # Display algorithm details
+    print_panel(f"Algorithm: {algorithm_name}", style="cyan")
     
-    # Create algorithm info panel
-    info_lines = []
-    info_lines.append(f"[bold]Name:[/bold] {algorithm.get('name', 'N/A')}")
-    info_lines.append(f"[bold]Description:[/bold] {algorithm.get('description', 'N/A')}")
+    # Basic info
+    console.print(f"\n[bold]Name:[/bold] {response.get('name', 'N/A')}")
+    console.print(f"[bold]Category:[/bold] {response.get('category', 'N/A')}")
+    console.print(f"[bold]Description:[/bold] {response.get('description', 'N/A')}")
     
-    # Show config schema if available
-    config_schema = algorithm.get('config_schema')
-    if config_schema:
-        info_lines.append(f"[bold]Configurable:[/bold] Yes")
-        info_lines.append(f"[bold]Parameters:[/bold] {len(config_schema.get('properties', {}))} available")
-    else:
-        info_lines.append(f"[bold]Configurable:[/bold] No")
-    
-    print_panel("\n".join(info_lines), title=f"Algorithm: {algorithm.get('name', 'Unknown')}", style="cyan")
-    
-    # Show configuration schema details if available
-    if config_schema and config_schema.get('properties'):
-        console.print(f"\n[bold cyan]Configuration Parameters:[/bold cyan]")
+    # Display parameters if available
+    params = response.get('parameters', {})
+    if params:
+        console.print("\n[bold cyan]Parameters:[/bold cyan]")
         
-        properties = config_schema.get('properties', {})
-        for param_name, param_info in properties.items():
-            param_type = param_info.get('type', 'unknown')
-            param_desc = param_info.get('description', 'No description')
-            param_default = param_info.get('default', 'No default')
-            
-            console.print(f"\n  [bold]{param_name}[/bold] ([cyan]{param_type}[/cyan])")
-            console.print(f"    {param_desc}")
-            if param_default != 'No default':
-                console.print(f"    [dim]Default: {param_default}[/dim]")
+        # Create parameters table
+        param_table = Table(show_header=True, header_style="bold")
+        param_table.add_column("Parameter", style="cyan")
+        param_table.add_column("Type", style="yellow")
+        param_table.add_column("Default", style="green")
+        param_table.add_column("Description")
+        
+        for param_name, param_info in params.items():
+            param_table.add_row(
+                param_name,
+                str(param_info.get('type', 'any')),
+                str(param_info.get('default', 'N/A')),
+                param_info.get('description', '')
+            )
+        
+        console.print(param_table)
+    
+    # Display example configuration if available
+    example = response.get('example_config')
+    if example:
+        console.print("\n[bold cyan]Example Configuration:[/bold cyan]")
+        console.print(Panel(
+            Syntax(str(example), "yaml", theme="monokai"),
+            expand=False
+        ))
+    
+    # Display additional notes if available
+    notes = response.get('notes')
+    if notes:
+        console.print("\n[bold cyan]Notes:[/bold cyan]")
+        console.print(notes)

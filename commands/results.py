@@ -6,7 +6,14 @@ import argparse
 import json
 from pathlib import Path
 from typing import Optional
-from utils import APIClient, save_to_csv, print_json, format_status
+from rich.console import Console
+from rich.table import Table
+from rich.style import Style
+from rich.live import Live
+import readchar
+from utils import APIClient, save_to_csv, print_json, format_status, format_datetime
+
+console = Console()
 
 def add_parser(subparsers):
     """Add results command parser"""
@@ -17,6 +24,7 @@ def add_parser(subparsers):
         description='Retrieve and export job results',
         epilog="""
 Examples:
+  ga-red results                            # Select job interactively
   ga-red results 123                        # View results for job 123
   ga-red results 123 --csv output.csv       # Export to CSV
   ga-red results 123 --json                 # Output as JSON
@@ -27,7 +35,8 @@ Examples:
     parser.add_argument(
         'job_id',
         type=int,
-        help='Job ID to get results for'
+        nargs='?',  # Make job_id optional
+        help='Job ID to get results for (if not provided, you can select from a list)'
     )
     
     parser.add_argument(
@@ -60,14 +69,100 @@ Examples:
         help='Show only failed attacks'
     )
 
+def render_job_table(jobs, selected_index):
+    """Render the job table with highlighting for the selected row"""
+    table = Table(title="Available Jobs - Use ↑↓ arrows to navigate, Enter to select, Ctrl+C to cancel", 
+                  show_header=True, header_style="bold cyan")
+    
+    table.add_column("Job ID", style="cyan", no_wrap=True, width=8)
+    table.add_column("Status", style="white", no_wrap=True, width=12)
+    table.add_column("Progress", style="white", no_wrap=True, width=10)
+    table.add_column("Created", style="white", no_wrap=True, width=19)
+    table.add_column("Description", style="white", overflow="ellipsis", max_width=50)
+    
+    for index, job in enumerate(jobs):
+        job_id = job.get('job_id', 0)
+        status = job.get('status', 'unknown')
+        description = job.get('description', 'No description')
+        created_at = format_datetime(job.get('created_at', ''))
+        completed = job.get('completed_objectives', 0)
+        total = job.get('total_objectives', 0)
+        
+        # Apply selection highlighting
+        row_style = Style(bgcolor="blue", bold=True) if index == selected_index else Style()
+        status_formatted = format_status(status)
+        
+        table.add_row(
+            str(job_id),
+            status_formatted,
+            f"{completed}/{total}",
+            created_at,
+            description,
+            style=row_style
+        )
+    
+    return table
+
+
+def select_job_interactive(client: APIClient) -> Optional[int]:
+    """Interactive job selection using Rich table and readchar for navigation"""
+    console.print("[cyan]Fetching available jobs...[/cyan]")
+    
+    # Get all jobs
+    response = client.get("/jobs")
+    if not response:
+        return None
+    
+    jobs = response.get('jobs', [])
+    if not jobs:
+        console.print("[yellow]No jobs found[/yellow]")
+        return None
+    
+    selected_index = 0
+    
+    try:
+        with Live(render_job_table(jobs, selected_index), console=console, auto_refresh=False) as live:
+            while True:
+                try:
+                    key = readchar.readkey()
+                    
+                    if key == readchar.key.UP:
+                        selected_index = (selected_index - 1) % len(jobs)
+                        live.update(render_job_table(jobs, selected_index), refresh=True)
+                    elif key == readchar.key.DOWN:
+                        selected_index = (selected_index + 1) % len(jobs)
+                        live.update(render_job_table(jobs, selected_index), refresh=True)
+                    elif key == readchar.key.ENTER or key == '\r' or key == '\n':
+                        # Return the selected job ID
+                        selected_job = jobs[selected_index]
+                        return selected_job.get('job_id')
+                    elif key == readchar.key.CTRL_C or key == '\x03':
+                        return None
+                        
+                except KeyboardInterrupt:
+                    return None
+                    
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Selection cancelled[/yellow]")
+        return None
+    except Exception as e:
+        console.print(f"[red]Error in job selection: {e}[/red]")
+        return None
+
 def execute(args):
     """Execute results command"""
     client = APIClient()
     
     job_id = args.job_id
     
+    # If no job_id provided, show interactive selector
+    if job_id is None:
+        job_id = select_job_interactive(client)
+        if job_id is None:
+            return
+    
     # Fetch results
-    print(f"Fetching results for job {job_id}...")
+    console.print(f"[cyan]Fetching results for job {job_id}...[/cyan]")
     data = client.get(f"/jobs/{job_id}/results")
     
     if not data:

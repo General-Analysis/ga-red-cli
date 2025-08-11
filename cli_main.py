@@ -18,9 +18,6 @@ sys.path.insert(0, str(cli_dir))
 
 # Import commands
 import commands.jobs as jobs
-import commands.run as run
-import commands.results as results
-import commands.config as config
 import commands.algorithms as algorithms
 import commands.datasets as datasets
 
@@ -43,14 +40,19 @@ def print_main_help():
     table.add_column("Command", style="cyan", no_wrap=True)
     table.add_column("Description", style="white")
     
-    table.add_row("algorithms", "List and view available attack algorithms")
-    table.add_row("datasets", "Manage datasets and their entries")
-    table.add_row("jobs", "Manage jobs (list, view, delete)")
-    table.add_row("run", "Run attack from configuration file")
-    table.add_row("results", "Get and export job results")
-    table.add_row("config", "Manage and validate configurations")
+    table.add_row("jobs", "Manage jobs (list, show, run, attach, export results, etc.)")
+    table.add_row("datasets", "Manage datasets (list, show, create, export, etc.)")
+    table.add_row("algorithms", "View available attack algorithms")
     
     console.print(table)
+    
+    console.print("\n[bold]Common Workflows:[/bold]")
+    console.print("  1. Run an attack:        ga-red jobs run config.yaml")
+    console.print("  2. Check job status:     ga-red jobs show")
+    console.print("  3. Get results:          ga-red jobs results")
+    console.print("  4. Export results:       ga-red jobs export --csv output.csv")
+    console.print("  5. List datasets:        ga-red datasets list")
+    console.print("  6. View algorithms:      ga-red algorithms list")
     
     console.print("\n[dim]For help on a specific command:[/dim]")
     console.print("  ga-red [cyan]<command>[/cyan] --help")
@@ -79,12 +81,9 @@ def main():
     )
     
     # Add command parsers
-    algorithms.add_parser(subparsers)
-    datasets.add_parser(subparsers)
     jobs.add_parser(subparsers)
-    run.add_parser(subparsers)
-    results.add_parser(subparsers)
-    config.add_parser(subparsers)
+    datasets.add_parser(subparsers)
+    algorithms.add_parser(subparsers)
     
     # Parse arguments
     args = parser.parse_args()
@@ -95,18 +94,12 @@ def main():
         sys.exit(0)
     
     # Execute the appropriate command
-    if args.command == 'algorithms':
-        algorithms.execute(args)
+    if args.command == 'jobs':
+        jobs.execute(args)
     elif args.command == 'datasets':
         datasets.execute(args)
-    elif args.command == 'jobs':
-        jobs.execute(args)
-    elif args.command == 'run':
-        run.execute(args)
-    elif args.command == 'results':
-        results.execute(args)
-    elif args.command == 'config':
-        config.execute(args)
+    elif args.command == 'algorithms':
+        algorithms.execute(args)
     else:
         console.print(f"[red]Unknown command: {args.command}[/red]")
         print_main_help()

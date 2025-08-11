@@ -14,6 +14,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
+    py_modules=["cli_main", "utils", "run_job"],
     install_requires=requirements,
     python_requires=">=3.7",
     entry_points={
