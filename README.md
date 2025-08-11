@@ -21,7 +21,7 @@ source .venv/bin/activate
 export GA_KEY="your_api_key_here"
 
 # 5. Run your first attack using a provided config
-ga-red jobs run configs/tap_basic.yaml
+ga-red jobs run configs/tap_llm_user.yaml
 
 # 6. Check job status
 ga-red jobs show
@@ -118,9 +118,9 @@ ga-red jobs show 123
 ga-red jobs show 123 --json
 
 # Run a new job from config
-ga-red jobs run configs/tap_basic.yaml
-ga-red jobs run configs/tap_basic.yaml --attach  # Attach after starting
-ga-red jobs run configs/tap_basic.yaml --dry-run  # Validate without running
+ga-red jobs run configs/tap_llm_user.yaml
+ga-red jobs run configs/tap_llm_user.yaml --attach  # Attach after starting
+ga-red jobs run configs/tap_llm_user.yaml --dry-run  # Validate without running
 
 # View results (interactive selection if no ID provided)
 ga-red jobs results
@@ -201,7 +201,7 @@ ga-red algorithms show TAP --json
 
 1. **Start with a provided config:**
    ```bash
-   ga-red jobs run configs/tap_basic.yaml
+   ga-red jobs run configs/tap_llm_user.yaml
    ```
 
 2. **Monitor the job:**
@@ -243,8 +243,10 @@ For detailed information about configuration formats and attack types, please vi
 ### Example Config Files
 
 The repository includes example configurations in the `configs/` directory:
-- `tap_basic.yaml` - Basic TAP attack configuration
-- `tap_basic_harmbench.yaml` - TAP attack with HarmBench dataset
+- `tap_llm_user.yaml` - TAP (Tree of Attacks with Pruning) configuration
+- `gcg_llm_user.yaml` - GCG (Greedy Coordinate Gradient) configuration
+- `pair_llm_user.yaml` - PAIR (Prompt Automatic Iterative Refinement) configuration
+- And many more attack algorithms including: bon, chameleon, cipher, crescendo, flip, goat, pap, renellm, roleplay, semantic, suppression, translate, zeroshot
 
 ## Platform Access
 
