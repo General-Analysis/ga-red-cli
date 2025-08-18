@@ -8,6 +8,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
 from rich.syntax import Syntax
+from rich.json import JSON
+import json
 from utils import (
     APIClient, create_table, console, print_success, print_error,
     print_warning, print_info, print_panel, print_json, select_algorithm
@@ -88,12 +90,13 @@ def execute(args):
 def list_algorithms(client: APIClient, args):
     """List all available algorithms"""
     with console.status("[red]Fetching algorithms...[/red]"):
-        response = client.get("/attack_algorithms")
+        response = client.get("/algorithms")
     
     if not response:
         return
     
-    algorithms = response.get('algorithms', [])
+    # New API returns a plain list
+    algorithms = response if isinstance(response, list) else response.get('algorithms', [])
     
     if not algorithms:
         print_warning("No algorithms found")
@@ -104,7 +107,7 @@ def list_algorithms(client: APIClient, args):
         return
     
     # Create table
-    headers = ["Name", "Description", "Category"]
+    headers = ["Name", "Description", "Type"]
     rows = []
     
     for algo in algorithms:
@@ -114,7 +117,7 @@ def list_algorithms(client: APIClient, args):
         rows.append([
             algo.get('name', 'N/A'),
             desc_display,
-            algo.get('category', 'N/A')
+            (algo.get('type') or 'N/A')
         ])
     
     table = create_table(f"Found {len(algorithms)} algorithm(s)", headers, rows)
@@ -128,10 +131,18 @@ def show_algorithm(client: APIClient, args):
     if not algorithm_name:
         return
     
+    # New API exposes only a list; fetch all and filter client-side
     with console.status(f"[red]Fetching algorithm '{algorithm_name}'...[/red]"):
-        response = client.get(f"/attack_algorithms/{algorithm_name}")
-    
+        algos = client.get("/algorithms")
+    if not algos:
+        return
+    response = None
+    for a in (algos if isinstance(algos, list) else algos.get('algorithms', [])):
+        if (a.get('name') or '').lower() == algorithm_name.lower():
+            response = a
+            break
     if not response:
+        print_error(f"Algorithm '{algorithm_name}' not found")
         return
     
     if hasattr(args, 'json') and args.json:
@@ -143,42 +154,17 @@ def show_algorithm(client: APIClient, args):
     
     # Basic info
     console.print(f"\n[bold]Name:[/bold] {response.get('name', 'N/A')}")
-    console.print(f"[bold]Category:[/bold] {response.get('category', 'N/A')}")
+    console.print(f"[bold]Type:[/bold] {response.get('type', 'N/A')}")
     console.print(f"[bold]Description:[/bold] {response.get('description', 'N/A')}")
     
-    # Display parameters if available
-    params = response.get('parameters', {})
-    if params:
-        console.print("\n[bold red]Parameters:[/bold red]")
-        
-        # Create parameters table
-        param_table = Table(show_header=True, header_style="bold red")
-        param_table.add_column("Parameter", style="red")
-        param_table.add_column("Type", style="yellow")
-        param_table.add_column("Default", style="green")
-        param_table.add_column("Description")
-        
-        for param_name, param_info in params.items():
-            param_table.add_row(
-                param_name,
-                str(param_info.get('type', 'any')),
-                str(param_info.get('default', 'N/A')),
-                param_info.get('description', '')
-            )
-        
-        console.print(param_table)
+    # Display config schema if available
+    config_schema = response.get('config_schema') or {}
+    if config_schema:
+        console.print("\n[bold red]Config Schema:[/bold red]")
+        console.print(JSON(json.dumps(config_schema)))
     
-    # Display example configuration if available
-    example = response.get('example_config')
-    if example:
-        console.print("\n[bold red]Example Configuration:[/bold red]")
-        console.print(Panel(
-            Syntax(str(example), "yaml", theme="monokai"),
-            expand=False
-        ))
-    
-    # Display additional notes if available
-    notes = response.get('notes')
-    if notes:
-        console.print("\n[bold red]Notes:[/bold red]")
-        console.print(notes)
+    # Display diagram if available
+    chart = response.get('chart')
+    if chart:
+        console.print("\n[bold red]Flowchart (Mermaid):[/bold red]")
+        console.print(Panel(chart, expand=False))

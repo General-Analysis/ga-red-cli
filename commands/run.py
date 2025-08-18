@@ -14,7 +14,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from utils import (
     APIClient, load_yaml_config, format_status_plain, print_json,
     console, print_success, print_error, print_warning, print_info,
-    print_panel, print_yaml
+    print_panel, print_yaml, transform_config_for_api
 )
 import sys
 
@@ -105,10 +105,11 @@ def execute(args):
     
     print_panel("\n".join(config_info), title="Configuration Loaded", style="red")
     
-    # Prepare payload
+    # Transform to new API schema
+    transformed = transform_config_for_api(config, client)
     payload = {
         "description": config.get("description", ""),
-        "config": config.get("config", {})
+        "config": transformed.get("config", {})
     }
     
     # Submit job
@@ -128,8 +129,8 @@ def execute(args):
         result_info.append(f"[bold green]Job created successfully[/bold green]")
         result_info.append(f"[bold]Job ID:[/bold] {job_id}")
         result_info.append(f"[bold]Status:[/bold] {format_status_plain(result.get('status', 'unknown'))}")
-        if result.get('dataset_used'):
-            result_info.append(f"[bold]Dataset:[/bold] {result.get('dataset_used')}")
+        if result.get('dataset_id') is not None:
+            result_info.append(f"[bold]Dataset ID:[/bold] {result.get('dataset_id')}")
         if result.get('total_objectives'):
             result_info.append(f"[bold]Objectives:[/bold] {result.get('total_objectives')}")
         

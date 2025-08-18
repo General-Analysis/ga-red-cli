@@ -17,7 +17,7 @@ from utils import (
     APIClient, format_datetime, format_status_plain, print_json, 
     confirm_action, create_table, console, print_success, print_error,
     print_warning, print_info, print_panel, select_job, format_status,
-    load_yaml_config, save_to_csv
+    load_yaml_config, save_to_csv, transform_config_for_api, select_dataset
 )
 
 def print_jobs_help():
@@ -171,13 +171,34 @@ def list_jobs(client: APIClient, args):
         return
     
     # Create table
-    headers = ["ID", "Status", "Description", "Progress", "ASR", "Created"]
+    headers = ["ID", "Status", "Algorithm", "Target", "Dataset", "Description", "Progress", "ASR"]
     rows = []
     
+    # Build dataset id -> name map for labeling
+    ds_map = {}
+    try:
+        ds_resp = client.get("/datasets")
+        ds_list = ds_resp if isinstance(ds_resp, list) else (ds_resp.get('datasets', []) if ds_resp else [])
+        for ds in ds_list:
+            ds_map[ds.get('id')] = ds.get('name')
+    except Exception:
+        pass
+
     for job in jobs:
         job_id = job.get('job_id', job.get('id', 'N/A'))
         desc = job.get('description', 'N/A')
         desc_display = desc[:30] + "..." if len(desc) > 30 else desc
+        cfg = job.get('config') or {}
+        attack_cfg = cfg.get('attack') or {}
+        target_cfg = cfg.get('target') or {}
+        if not target_cfg and (cfg.get('models') or {}).get('target'):
+            target_cfg = (cfg.get('models') or {}).get('target')
+        dataset_label = None
+        if cfg.get('dataset_id') is not None:
+            ds_id = cfg.get('dataset_id')
+            dataset_label = ds_map.get(ds_id, f"id:{ds_id}")
+        elif cfg.get('objectives'):
+            dataset_label = "custom_objectives"
         
         completed = job.get('completed_objectives', 0)
         total = job.get('total_objectives', 0)
@@ -186,10 +207,12 @@ def list_jobs(client: APIClient, args):
         rows.append([
             str(job_id),
             format_status_plain(job.get('status', 'unknown')),
+            (attack_cfg.get('type') or 'N/A'),
+            (target_cfg.get('name') or 'N/A'),
+            (dataset_label or 'N/A'),
             desc_display,
             progress,
-            f"{job.get('asr', 0):.1%}" if job.get('asr') is not None else 'N/A',
-            format_datetime(job.get('created_at', ''))
+            f"{job.get('asr', 0):.1%}" if job.get('asr') is not None else 'N/A'
         ])
     
     table = create_table(f"Found {len(jobs)} job(s)", headers, rows)
@@ -269,12 +292,10 @@ def show_results(client: APIClient, args):
         
         if result.get('objective'):
             console.print(f"  Objective: {result['objective'][:100]}...")
-        if result.get('prompt'):
-            console.print(f"  Prompt: {result['prompt'][:100]}...")
-        if result.get('response'):
-            console.print(f"  Response: {result['response'][:100]}...")
-        if result.get('trajectory'):
-            console.print(f"  Trajectory steps: {len(result['trajectory'])}")
+        if result.get('payload'):
+            console.print(f"  Payload: {result['payload'][:100]}...")
+        if result.get('output'):
+            console.print(f"  Output: {result['output'][:100]}...")
 
 def export_results(client: APIClient, args):
     """Export job results"""
@@ -296,7 +317,7 @@ def export_results(client: APIClient, args):
     
     # Export to CSV
     if getattr(args, 'csv', None):
-        fieldnames = ['index', 'success', 'objective', 'prompt', 'response', 'trajectory_steps']
+        fieldnames = ['index', 'success', 'objective', 'payload', 'output', 'trajectory_steps']
         
         csv_data = []
         for idx, result in enumerate(results, 1):
@@ -304,8 +325,8 @@ def export_results(client: APIClient, args):
                 'index': idx,
                 'success': result.get('success', False),
                 'objective': result.get('objective', ''),
-                'prompt': result.get('prompt', ''),
-                'response': result.get('response', ''),
+                'payload': result.get('payload', ''),
+                'output': result.get('output', ''),
                 'trajectory_steps': len(result.get('trajectory', []))
             })
         
@@ -422,9 +443,14 @@ def attach_to_job(client: APIClient, args):
                 else:
                     logs_table.add_row("", "", "Waiting for logs...")
                 
-                # Create simple display
+                # Create simple display with algorithm/target/dataset header line
                 display_content = Group(
-                    Align.center(Text.from_markup(f"[bold]Job #{job_id}[/bold]")),
+                    Align.center(Text.from_markup(
+                        f"[bold]Job #{job_id}[/bold]  "
+                        f"[dim]Alg:[/dim] {(data.get('config', {}).get('attack') or {}).get('type', 'N/A')}  "
+                        f"[dim]Target:[/dim] {((data.get('config', {}).get('target') or {}).get('name') or 'N/A')}  "
+                        f"[dim]Dataset:[/dim] " + ("id:" + str(data.get('config', {}).get('dataset_id')) if (data.get('config', {}) or {}).get('dataset_id') is not None else ("custom_objectives" if (data.get('config', {}) or {}).get('objectives') else "N/A"))
+                    )),
                     Rule(style="dim"),
                     progress_display,
                     Rule(style="dim"),
@@ -504,10 +530,11 @@ def run_job(client: APIClient, args):
     
     print_info(f"Starting job with config: {args.config_file}")
     
-    # Prepare payload
+    # Transform config to new API shape and resolve dataset_id if needed
+    transformed = transform_config_for_api(config, client)
     payload = {
         "description": config.get("description", ""),
-        "config": config.get("config", {})
+        "config": transformed.get("config", {})
     }
     
     response = client.post("/run", payload)
@@ -521,8 +548,8 @@ def run_job(client: APIClient, args):
     result_info = []
     result_info.append(f"[bold]Job ID:[/bold] {job_id}")
     result_info.append(f"[bold]Status:[/bold] {format_status_plain(response.get('status', 'unknown'))}")
-    if response.get('dataset_used'):
-        result_info.append(f"[bold]Dataset:[/bold] {response.get('dataset_used')}")
+    if response.get('dataset_id') is not None:
+        result_info.append(f"[bold]Dataset ID:[/bold] {response.get('dataset_id')}")
     if response.get('total_objectives'):
         result_info.append(f"[bold]Objectives:[/bold] {response.get('total_objectives')}")
     

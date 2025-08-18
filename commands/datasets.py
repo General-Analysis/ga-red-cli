@@ -142,7 +142,7 @@ def list_datasets(client: APIClient, args):
         return
     
     # Create table
-    headers = ["Name", "Entries", "Description", "Created"]
+    headers = ["ID", "Name", "Entries", "Description", "Created"]
     rows = []
     
     for dataset in datasets:
@@ -152,6 +152,7 @@ def list_datasets(client: APIClient, args):
         desc_display = desc[:40] + "..." if len(desc) > 40 else desc
         
         rows.append([
+            str(dataset.get('id', '')),
             dataset.get('name', 'N/A'),
             str(dataset.get('size', dataset.get('entries_count', 0))),
             desc_display,
@@ -163,22 +164,22 @@ def list_datasets(client: APIClient, args):
 
 def show_dataset(client: APIClient, args):
     """Show dataset details"""
-    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
-    if not dataset_name:
+    dataset_id = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_id:
         return
     
-    with console.status(f"[red]Fetching dataset '{dataset_name}'...[/red]"):
-        data = client.get(f"/datasets/{dataset_name}")
+    with console.status(f"[red]Fetching dataset {dataset_id}...[/red]"):
+        data = client.get(f"/datasets/{dataset_id}")
     
     if not data:
         return
     
     if hasattr(args, 'json') and args.json:
-        print_json(data, title=f"Dataset: {dataset_name}")
+        print_json(data, title=f"Dataset: {data.get('name', 'N/A')}")
         return
     
     # Display dataset details
-    print_panel(f"Dataset: {dataset_name}", style="red")
+    print_panel(f"Dataset: {data.get('name', 'N/A')} (id={data.get('id', dataset_id)})", style="red")
     
     details = []
     details.append(f"Name: {data.get('name', 'N/A')}")
@@ -199,15 +200,15 @@ def show_dataset(client: APIClient, args):
 
 def show_entries(client: APIClient, args):
     """Show dataset entries with pagination"""
-    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
-    if not dataset_name:
+    dataset_id = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_id:
         return
     
     limit = getattr(args, 'limit', 10)
     offset = getattr(args, 'offset', 0)
     
     # Build endpoint with parameters
-    endpoint = f"/datasets/{dataset_name}/entries"
+    endpoint = f"/datasets/{dataset_id}/entries"
     params = []
     if limit:
         params.append(f"limit={limit}")
@@ -216,7 +217,7 @@ def show_entries(client: APIClient, args):
     if params:
         endpoint += "?" + "&".join(params)
     
-    with console.status(f"[red]Fetching entries for '{dataset_name}'...[/red]"):
+    with console.status(f"[red]Fetching entries for dataset {dataset_id}...[/red]"):
         data = client.get(endpoint)
     
     if not data:
@@ -231,7 +232,7 @@ def show_entries(client: APIClient, args):
         total = data.get('total', len(entries))
     
     if hasattr(args, 'json') and args.json:
-        print_json({'dataset': dataset_name, 'entries': entries, 'total': total})
+        print_json({'dataset_id': dataset_id, 'entries': entries, 'total': total})
         return
     
     if not entries:
@@ -240,7 +241,7 @@ def show_entries(client: APIClient, args):
     
     # Display entries
     print_panel(
-        f"Dataset: {dataset_name} - Showing {len(entries)} entries (offset={offset})",
+        f"Dataset ID: {dataset_id} - Showing {len(entries)} entries (offset={offset})",
         style="red"
     )
     
@@ -254,12 +255,12 @@ def show_entries(client: APIClient, args):
 
 def export_dataset(client: APIClient, args):
     """Export dataset to file"""
-    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
-    if not dataset_name:
+    dataset_id = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_id:
         return
     
-    with console.status(f"[red]Fetching dataset '{dataset_name}'...[/red]"):
-        data = client.get(f"/datasets/{dataset_name}")
+    with console.status(f"[red]Fetching dataset {dataset_id}...[/red]"):
+        data = client.get(f"/datasets/{dataset_id}")
     
     if not data:
         return
@@ -388,16 +389,16 @@ def create_dataset(client: APIClient, args):
 
 def delete_dataset(client: APIClient, args):
     """Delete a dataset"""
-    dataset_name = select_dataset(client, getattr(args, 'dataset_name', None))
-    if not dataset_name:
+    dataset_id = select_dataset(client, getattr(args, 'dataset_name', None))
+    if not dataset_id:
         return
     
     if not getattr(args, 'force', False):
-        if not confirm_action(f"Delete dataset '{dataset_name}'?"):
+        if not confirm_action(f"Delete dataset id '{dataset_id}'?"):
             print_info("Deletion cancelled")
             return
     
-    if client.delete(f"/datasets/{dataset_name}"):
-        print_success(f"Dataset '{dataset_name}' deleted")
+    if client.delete(f"/datasets/{dataset_id}"):
+        print_success(f"Dataset {dataset_id} deleted")
     else:
-        print_error(f"Failed to delete dataset '{dataset_name}'")
+        print_error(f"Failed to delete dataset {dataset_id}")

@@ -100,6 +100,25 @@ class APIClient:
             console.print(f"[red]Error: {e}[/red]")
             return False
 
+    def get_bytes(self, endpoint: str) -> Optional[bytes]:
+        """GET request that returns raw bytes (for downloads)."""
+        url = f"{self.base_url}{endpoint}"
+        try:
+            response = requests.get(url, headers=self.headers)
+            if response.status_code == 200:
+                return response.content
+            else:
+                console.print(f"[red]Error: {response.status_code}[/red]")
+                console.print(response.text)
+                return None
+        except requests.exceptions.ConnectionError:
+            console.print(f"[red]Error: Could not connect to {self.base_url}[/red]")
+            console.print("[yellow]Make sure the REDit server is running[/yellow]")
+            return None
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            return None
+
 def format_datetime(dt_str: str) -> str:
     """Format ISO datetime string to readable format"""
     try:
@@ -364,41 +383,84 @@ def select_job(client: APIClient, job_id: Optional[int] = None) -> Optional[int]
         console.print("[yellow]No jobs found[/yellow]")
         return None
     
+    # Build dataset id -> name map for labeling
+    ds_map = {}
+    try:
+        ds_resp = client.get("/datasets")
+        ds_list = ds_resp if isinstance(ds_resp, list) else (ds_resp.get('datasets', []) if ds_resp else [])
+        for ds in ds_list:
+            ds_map[ds.get('id')] = ds.get('name')
+    except Exception:
+        pass
+    
     columns = [
         {"key": "job_id", "header": "Job ID", "style": "cyan", "no_wrap": True, "width": 8},
-        {"key": "status", "header": "Status", "formatter": format_status_plain, "no_wrap": True, "width": 12},
+        {"key": "status", "header": "Status", "formatter": format_status_plain, "no_wrap": True, "width": 10},
+        {"key": "algorithm", "header": "Algorithm", "no_wrap": True, "width": 14},
+        {"key": "target", "header": "Target", "no_wrap": True, "width": 20},
+        {"key": "dataset", "header": "Dataset", "no_wrap": True, "width": 20},
         {"key": "progress", "header": "Progress", "no_wrap": True, "width": 10,
          "formatter": lambda j: f"{j.get('completed_objectives', 0)}/{j.get('total_objectives', 0)}"},
-        {"key": "created_at", "header": "Created", "formatter": format_datetime, "no_wrap": True, "width": 19},
         {"key": "description", "header": "Description", "max_width": 50, "overflow": "ellipsis"}
     ]
     
     # Transform job data to include calculated fields
     for job in jobs:
+        cfg = job.get('config') or {}
+        attack_cfg = cfg.get('attack') or {}
+        target_cfg = cfg.get('target') or {}
+        # Fallback for legacy configs
+        if not target_cfg and (cfg.get('models') or {}).get('target'):
+            target_cfg = (cfg.get('models') or {}).get('target')
+        dataset_label = None
+        if cfg.get('dataset_id') is not None:
+            ds_id = cfg.get('dataset_id')
+            dataset_label = ds_map.get(ds_id, f"id:{ds_id}")
+        elif cfg.get('objectives'):
+            dataset_label = "custom_objectives"
+        job['algorithm'] = attack_cfg.get('type') or 'N/A'
+        job['target'] = target_cfg.get('name') or 'N/A'
+        job['dataset'] = dataset_label or 'N/A'
         job['progress'] = job  # Pass the whole job object for the formatter
     
     return interactive_select(jobs, "Select a Job", columns, id_field="job_id")
 
-def select_dataset(client: APIClient, dataset_name: Optional[str] = None) -> Optional[str]:
+def select_dataset(client: APIClient, dataset_name: Optional[str] = None) -> Optional[int]:
     """
-    Select a dataset interactively or return the provided dataset_name.
+    Select a dataset interactively or resolve provided name/id to dataset_id.
     
     Args:
         client: API client instance
-        dataset_name: Optional dataset name. If None, shows interactive selection
+        dataset_name: Optional dataset name or id (as string). If None, shows interactive selection.
     
     Returns:
-        Selected or provided dataset name, or None if cancelled
+        Selected dataset id, or None if cancelled/not found.
     """
+    # If user provided a value, try to interpret as ID first, then resolve by name
     if dataset_name is not None:
-        return dataset_name
+        # Try numeric id
+        try:
+            return int(str(dataset_name).strip())
+        except Exception:
+            pass
+        # Resolve by name lookup
+        response = client.get("/datasets")
+        if not response:
+            return None
+        datasets = response if isinstance(response, list) else response.get('datasets', [])
+        for ds in datasets:
+            if str(ds.get('name', '')).lower() == str(dataset_name).lower():
+                return ds.get('id')
+        console.print(f"[yellow]Dataset '{dataset_name}' not found[/yellow]")
+        return None
     
+    # Interactive selection
     console.print("[cyan]Fetching available datasets...[/cyan]")
     response = client.get("/datasets")
     if not response:
         return None
     
-    datasets = response.get('datasets', response) if isinstance(response, dict) else response
+    datasets = response if isinstance(response, list) else response.get('datasets', [])
     if not datasets:
         console.print("[yellow]No datasets found[/yellow]")
         return None
@@ -410,7 +472,52 @@ def select_dataset(client: APIClient, dataset_name: Optional[str] = None) -> Opt
         {"key": "created_at", "header": "Created", "formatter": format_datetime, "no_wrap": True}
     ]
     
-    return interactive_select(datasets, "Select a Dataset", columns, id_field="name")
+    return interactive_select(datasets, "Select a Dataset", columns, id_field="id")
+
+def transform_config_for_api(raw_config: Dict[str, Any], client: APIClient) -> Dict[str, Any]:
+    """
+    Transform legacy CLI config into the server's expected JobRequest format.
+    - Move models.target -> target { name, system_prompt }
+    - Resolve dataset name -> dataset_id
+    - Preserve attack and objectives as-is
+    """
+    import copy
+    config = copy.deepcopy(raw_config or {})
+    payload = config.get("config", {})
+    
+    # Map models.target -> target
+    if "target" not in payload:
+        models = payload.get("models") or {}
+        target_model = models.get("target") or {}
+        if target_model:
+            payload["target"] = {
+                "name": target_model.get("name"),
+                "system_prompt": payload.get("target", {}).get("system_prompt", "You are a helpful AI assistant.")
+            }
+    
+    # Resolve dataset name -> dataset_id
+    if "dataset_id" not in payload and isinstance(payload.get("dataset"), str):
+        try:
+            datasets = client.get("/datasets")
+            all_ds = datasets if isinstance(datasets, list) else (datasets.get('datasets', []) if datasets else [])
+            match = next((d for d in all_ds if str(d.get('name', '')).lower() == payload["dataset"].lower()), None)
+            if match and match.get('id') is not None:
+                payload["dataset_id"] = match['id']
+                # Remove legacy field to avoid server-side conflict
+                del payload["dataset"]
+        except Exception:
+            # Leave as-is; server will error clearly
+            pass
+    
+    # Remove models block if not needed
+    if "models" in payload and "target" in payload:
+        try:
+            del payload["models"]
+        except Exception:
+            pass
+    
+    config["config"] = payload
+    return config
 
 def select_algorithm(client: APIClient, algorithm_name: Optional[str] = None) -> Optional[str]:
     """
@@ -427,11 +534,11 @@ def select_algorithm(client: APIClient, algorithm_name: Optional[str] = None) ->
         return algorithm_name
     
     console.print("[cyan]Fetching available algorithms...[/cyan]")
-    response = client.get("/attack_algorithms")
+    response = client.get("/algorithms")
     if not response:
         return None
     
-    algorithms = response.get('algorithms', [])
+    algorithms = response if isinstance(response, list) else response.get('algorithms', [])
     if not algorithms:
         console.print("[yellow]No algorithms found[/yellow]")
         return None
